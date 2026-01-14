@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Criar Conta{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-lg bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+    <div class="p-6 bg-theme transition-colors">
+      <h1 class="text-2xl font-extrabold text-white">Criar conta do salão</h1>
+      <p class="text-white/90 mt-1">Cadastre seu salão e comece a usar agora.</p>
+    </div>
+
+    <form id="form-signup" class="p-6 space-y-4" method="POST" action="{% url 'signup' %}">
+      {% csrf_token %}
+      
+      {% if erro %}
+      <div class="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">{{ erro }}</div>
+      {% endif %}
+
+      <div><label class="text-sm font-semibold text-slate-700">Nome do salão</label><input name="nome_salao" type="text" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 ring-theme" placeholder="Ex: Studio Bela Mulher"></div>
+      <div><label class="text-sm font-semibold text-slate-700">E-mail do administrador</label><input name="email" type="email" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 ring-theme" placeholder="admin@seusalao.com"></div>
+      <div><label class="text-sm font-semibold text-slate-700">Senha</label><input id="senha" name="senha" type="password" minlength="8" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 ring-theme" placeholder="Crie uma senha forte"></div>
+      <div><label class="text-sm font-semibold text-slate-700">Repetir senha</label><input id="senha2" name="senha2" type="password" minlength="8" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 ring-theme" placeholder="Repita a senha"><p id="hint-match" class="text-xs mt-1"></p></div>
+
+      <div>
+        <label class="text-sm font-semibold text-slate-700 mb-2 block">Escolha a cor do tema</label>
+        <input type="hidden" name="cor_tema" id="cor_tema">
+        <div class="grid grid-cols-5 gap-3">
+          <button type="button" class="cor w-8 h-8 rounded-full" data-cor="#8E44AD" style="background:#8E44AD"></button>
+          <button type="button" class="cor w-8 h-8 rounded-full" data-cor="#db2777" style="background:#db2777"></button>
+          <button type="button" class="cor w-8 h-8 rounded-full" data-cor="#2563eb" style="background:#2563eb"></button>
+          <button type="button" class="cor w-8 h-8 rounded-full" data-cor="#16a34a" style="background:#16a34a"></button>
+          <button type="button" class="cor w-8 h-8 rounded-full" data-cor="#000000" style="background:#000000"></button>
+        </div>
+      </div>
+
+      <button type="submit" class="w-full text-white font-bold py-2.5 rounded-xl shadow hover:opacity-95 transition bg-theme">Criar salão e entrar</button>
+      <div class="text-center text-sm text-slate-600">Já tem conta? <a class="font-bold hover:underline text-theme" href="{% url 'login' %}">Entrar</a></div>
+    </form>
+  </div>
+</div>
+
+<script>
+(function(){
+  const senha = document.getElementById("senha");
+  const senha2 = document.getElementById("senha2");
+  const hint = document.getElementById("hint-match");
+  const corInput = document.getElementById("cor_tema");
+
+  function updateHint(){
+    if(!senha.value || !senha2.value) return;
+    if(senha.value === senha2.value){ hint.textContent = "Senhas conferem ✅"; hint.className = "text-xs mt-1 text-emerald-600"; } 
+    else { hint.textContent = "As senhas não conferem."; hint.className = "text-xs mt-1 text-red-600"; }
+  }
+  senha.addEventListener("input", updateHint); senha2.addEventListener("input", updateHint);
+
+  document.querySelectorAll(".cor").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".cor").forEach(b => b.classList.remove("ring-4","ring-offset-2","ring-slate-400"));
+      btn.classList.add("ring-4","ring-offset-2","ring-slate-400");
+      corInput.value = btn.dataset.cor;
+      document.documentElement.style.setProperty("--cor-primaria", btn.dataset.cor);
+    });
+  });
+})();
+</script>
+{% endblock %}

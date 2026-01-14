@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+
+{% block title %}Entrar - Painel{% endblock %}
+
+{% block content %}
+<div class="min-h-screen flex items-center justify-center p-4">
+  <div class="w-full max-w-md bg-white rounded-2xl shadow-lg border border-slate-200 overflow-hidden">
+    <div class="p-6 transition-colors bg-theme">
+      <h1 class="text-2xl font-extrabold text-white">Acessar painel</h1>
+      <p class="text-white/90 mt-1">Entre com seu e-mail e senha.</p>
+    </div>
+
+    <form class="p-6 space-y-4" method="POST" action="{% url 'login' %}">
+      {% csrf_token %} 
+      
+      {% if erro %}
+      <div class="bg-red-50 border border-red-200 text-red-700 rounded-xl p-3 text-sm">
+        {{ erro }}
+      </div>
+      {% endif %}
+
+      <div>
+        <label class="text-sm font-semibold text-slate-700">E-mail</label>
+        <input name="username" type="email" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 ring-theme" placeholder="seuemail@exemplo.com">
+      </div>
+
+      <div>
+        <div class="flex justify-between items-center">
+          <label class="text-sm font-semibold text-slate-700">Senha</label>
+          <a href="{% url 'password_reset' %}" class="text-xs font-bold text-theme hover:underline">
+            Esqueceu a senha?
+          </a>
+        </div>
+        <input name="password" type="password" required class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 ring-theme" placeholder="••••••••">
+      </div>
+
+      <button type="submit" class="w-full text-white font-bold py-2.5 rounded-xl shadow hover:opacity-95 transition bg-theme">
+        Entrar
+      </button>
+
+      <div class="text-center text-sm text-slate-600">
+        Não tem conta? <a class="font-bold hover:underline text-theme" href="{% url 'signup' %}">Criar um salão</a>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

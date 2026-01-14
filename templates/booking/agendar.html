@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agendamento - {{ salao.nome }}</title>
+
+  {# ========= CSP NONCE (opcional) =========
+     - FastAPI usava: {{ request.state.csp_nonce }}
+     - Django (se você usa django-csp, por ex.) pode expor algo como {{ csp_nonce }}
+     - Aqui a gente tenta usar {{ csp_nonce|default:'' }} e deixa o atributo nonce vazio se não existir.
+  #}
+  {% with NONCE=csp_nonce|default:'' %}
+    {# Turnstile (opcional) #}
+    {% if turnstile_site_key %}
+      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?onload=turnstileOnload" async defer {% if NONCE %}nonce="{{ NONCE }}"{% endif %}></script>
+    {% endif %}
+
+    <script src="https://cdn.tailwindcss.com" {% if NONCE %}nonce="{{ NONCE }}"{% endif %}></script>
+    <script src="https://html2canvas.hertzen.com/dist/html2canvas.min.js" {% if NONCE %}nonce="{{ NONCE }}"{% endif %}></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js" {% if NONCE %}nonce="{{ NONCE }}"{% endif %}></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet" />
+    <style>
+      :root{
+        --cor-primaria: {{ salao.cor_do_tema|default:'#8E44AD' }};
+        --cor-primaria-clara: color-mix(in srgb, var(--cor-primaria), white 90%);
+      }
+      .bg-theme-light{ background-color: var(--cor-primaria-clara); }
+      .text-theme{ color: var(--cor-primaria); }
+      .border-theme{ border-color: var(--cor-primaria); }
+      .ring-theme{ --tw-ring-color: var(--cor-primaria); }
+
+      body{ font-family:'Inter',sans-serif; background:#f3f4f6; color:#1f2937; margin:0; padding:0; }
+      .gradient-bg{ background: linear-gradient(135deg, var(--cor-primaria) 0%, var(--cor-primaria) 100%); }
+
+      .selected-card{
+        border-color: var(--cor-primaria) !important;
+        background-color: var(--cor-primaria-clara);
+        box-shadow: 0 10px 15px -3px rgba(0,0,0,0.10);
+      }
+
+      .slot-btn{ border:2px solid #f3f4f6; transition:all .2s; }
+      .slot-btn:hover:not(:disabled){ border-color: var(--cor-primaria); color: var(--cor-primaria); transform: translateY(-2px); }
+      .slot-selected{ background: var(--cor-primaria) !important; color:#fff !important; border-color: var(--cor-primaria) !important; }
+
+      .no-scrollbar::-webkit-scrollbar{ display:none; }
+      .no-scrollbar{ -ms-overflow-style:none; scrollbar-width:none; }
+
+      .prof-img-container.selected-prof{ border-color: var(--cor-primaria) !important; transform: scale(1.08); background-color: var(--cor-primaria-clara); }
+
+      .cat-btn{ transition: all .2s cubic-bezier(.4,0,.2,1); }
+      .cat-btn.active{
+        background-color: var(--cor-primaria);
+        color:#fff;
+        border-color: var(--cor-primaria);
+        box-shadow: 0 4px 6px -1px rgba(0,0,0,.1);
+      }
+
+      .calendar-day.disabled{
+        opacity:.15 !important;
+        cursor:not-allowed !important;
+        pointer-events:none !important;
+        background:#f3f4f6 !important;
+        text-decoration: line-through;
+      }
+      .day-selected{ background: var(--cor-primaria) !important; color:#fff !important; border-color: var(--cor-primaria) !important; }
+
+      @keyframes pulse-soft{ 0%,100%{opacity:1} 50%{opacity:.5} }
+      .loading-text{ animation: pulse-soft 1.5s infinite; }
+
+      @keyframes modalPop{ 0%{transform:scale(.9);opacity:0} 100%{transform:scale(1);opacity:1} }
+      .animate-pop{ animation: modalPop .3s cubic-bezier(.175,.885,.32,1.275) forwards; }
+    </style>
+  {% endwith %}
+</head>
+
+<body>
+  {# ========= DADOS PARA O JS (Django) ========= #}
+  {{ servicos|json_script:"json-servicos" }}
+  {{ feriados|json_script:"json-feriados" }}
+  {{ folgas|json_script:"json-folgas" }}
+
+  {# ========= TEMPLATE DO VOUCHER (fora da tela, mas renderizável) ========= #}
+  <div style="position: fixed; top:0; left:0; z-index:0; pointer-events:none;">
+    <div id="voucher-template" style="width:380px; background:#fff; border-radius:0 0 24px 0; overflow:hidden; font-family:'Inter',sans-serif;">
+      <div class="gradient-bg p-8 text-center text-white relative">
+        <div style="position:absolute; bottom:-8px; left:-8px; width:16px; height:16px; background:#fff; border-radius:50%;"></div>
+        <div style="position:absolute; bottom:-8px; right:-8px; width:16px; height:16px; background:#fff; border-radius:50%;"></div>
+
+        <h2 class="text-xl font-extrabold uppercase tracking-wider mb-1">{{ salao.nome }}</h2>
+        <p class="text-[10px] uppercase tracking-[0.2em] opacity-80">Comprovante Digital</p>
+      </div>
+
+      <div class="p-8 bg-white text-gray-800">
+        <div class="text-center space-y-1 mb-6">
+          <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Cliente</p>
+          <p class="text-2xl font-black text-gray-900 leading-none" id="v-nome">Cliente</p>
+          <p class="text-xs text-gray-500 font-mono" id="v-tel">---</p>
+        </div>
+
+        <div class="border-t-2 border-dashed border-gray-100 my-6"></div>
+
+        <div class="grid grid-cols-2 gap-4 text-center">
+          <div>
+            <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Data</p>
+            <p class="text-lg font-black text-theme" id="v-data">--/--</p>
+          </div>
+          <div>
+            <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Horário</p>
+            <p class="text-lg font-black text-theme" id="v-hora">--:--</p>
+          </div>
+        </div>
+
+        <div class="text-center mt-6">
+          <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Serviço</p>
+          <p class="text-sm font-bold text-gray-800" id="v-servico">Serviço</p>
+        </div>
+
+        <div class="mt-8 flex flex-col items-center">
+          <div class="p-2 border border-gray-100 rounded-xl shadow-sm bg-white">
+            <div id="v-qrcode"></div>
+          </div>
+          <p class="text-[9px] text-gray-300 uppercase font-bold mt-2 tracking-wide">Código de Verificação</p>
+        </div>
+      </div>
+
+      <div class="h-2 gradient-bg"></div>
+    </div>
+  </div>
+
+  {# ========= APP ========= #}
+  <div id="main-wrapper" style="position:relative; z-index:10; background:#f3f4f6; min-height:100vh; width:100%;">
+    <div class="p-4 md:p-8">
+      <div class="max-w-2xl mx-auto bg-white rounded-[3rem] shadow-2xl overflow-hidden pb-12">
+        <div class="gradient-bg p-10 text-white text-center">
+          <h1 class="text-3xl font-extrabold tracking-tight uppercase">{{ salao.nome }}</h1>
+          <p class="opacity-90 mt-2 font-medium">Reserve o seu momento agora</p>
+        </div>
+
+        <div class="p-6 md:p-10 space-y-12">
+
+          {# ===== 1) Serviços + Categorias ===== #}
+          <section>
+            <div class="flex items-center space-x-3 mb-6">
+              <span class="bg-theme-light text-theme w-8 h-8 rounded-full flex items-center justify-center font-black italic">1</span>
+              <h3 class="text-gray-800 uppercase text-xs font-black tracking-widest">Escolha o Serviço</h3>
+            </div>
+
+            {% if categorias %}
+              <div class="mb-6 overflow-x-auto no-scrollbar py-2 -mx-2 px-2">
+                <div class="flex gap-2">
+                  <button data-click="filtrarCategoria" data-id="todas"
+                          class="cat-btn active border border-gray-200 px-5 py-2.5 rounded-full text-sm font-bold text-gray-500 whitespace-nowrap hover:bg-gray-50">
+                    Todos
+                  </button>
+                  {% for cat in categorias %}
+                    <button data-click="filtrarCategoria" data-id="{{ cat.id }}"
+                            class="cat-btn border border-gray-200 px-5 py-2.5 rounded-full text-sm font-bold text-gray-500 whitespace-nowrap hover:bg-gray-50">
+                      {{ cat.nome }}
+                    </button>
+                  {% endfor %}
+                </div>
+              </div>
+            {% endif %}
+
+            <div class="grid grid-cols-1 gap-4" id="grid-servicos">
+              {% for servico in servicos %}
+                <label class="service-card relative flex items-center p-5 border-2 rounded-2xl cursor-pointer hover:border-gray-300 transition-all border-gray-100 shadow-sm animate-pop"
+                       data-cat="{{ servico.category_id|default:'sem-categoria' }}">
+                  <input type="radio" name="service" value="{{ servico.id }}" class="hidden" data-change="selecionarServico" />
+                  <div class="flex-1">
+                    <span class="block font-bold text-lg text-gray-800">{{ servico.nome }}</span>
+                    <span class="text-xs text-gray-400 font-bold uppercase">{{ servico.duracao_minutos }} min</span>
+                  </div>
+
+                  {% if not salao.ocultar_precos %}
+                    <span class="font-black text-theme text-xl">
+                      R$ {{ servico.preco|floatformat:2 }}
+                    </span>
+                  {% endif %}
+                </label>
+              {% endfor %}
+            </div>
+            <div id="msg-sem-servico" class="hidden text-center text-gray-400 py-10 italic">Nenhum serviço nesta categoria.</div>
+          </section>
+
+          {# ===== 2) Profissionais ===== #}
+          <section id="section-profissionais" class="opacity-40 pointer-events-none transition-all duration-500">
+            <div class="flex items-center space-x-3 mb-6">
+              <span class="bg-theme-light text-theme w-8 h-8 rounded-full flex items-center justify-center font-black italic">2</span>
+              <h3 class="text-gray-800 uppercase text-xs font-black tracking-widest">Com quem prefere?</h3>
+            </div>
+            <div id="lista-profissionais" class="flex space-x-6 overflow-x-auto no-scrollbar py-2">
+              <p class="text-gray-400 italic text-sm ml-2">Selecione o serviço acima...</p>
+            </div>
+          </section>
+
+          {# ===== 3) Calendário ===== #}
+          <section id="section-calendario" class="hidden transition-all duration-500">
+            <div class="flex items-center justify-between mb-6">
+              <div class="flex items-center space-x-3">
+                <span class="bg-theme-light text-theme w-8 h-8 rounded-full flex items-center justify-center font-black italic">3</span>
+                <h3 class="text-gray-800 uppercase text-xs font-black tracking-widest">Escolha a Data</h3>
+              </div>
+              <span id="label-mes-ano" class="text-sm font-bold text-theme bg-theme-light px-3 py-1 rounded-lg"></span>
+            </div>
+            <div class="bg-gray-50 p-6 rounded-[2rem] border-2 border-gray-100">
+              <div id="calendar-grid" class="grid grid-cols-7 gap-2 text-center text-sm"></div>
+            </div>
+          </section>
+
+          {# ===== Horários ===== #}
+          <section id="section-horarios" class="border-t border-gray-100 pt-10 hidden">
+            <div id="lista-horarios" class="grid grid-cols-3 sm:grid-cols-4 gap-3"></div>
+          </section>
+
+          {# ===== Finalizar ===== #}
+          <section id="section-finalizar" class="hidden border-t border-gray-200 pt-10">
+            <div class="bg-gray-50 p-8 rounded-[2.5rem] border-2 border-dashed border-gray-200">
+              <div class="space-y-4">
+                <input type="text" id="cliente-nome" placeholder="Seu nome completo"
+                       class="w-full p-5 rounded-2xl border-none font-bold shadow-sm outline-none focus:ring-2 focus:ring-theme" />
+                <input type="tel" id="cliente-whatsapp" maxlength="16" placeholder="(00) 0 0000-0000"
+                       class="w-full p-5 rounded-2xl border-none font-bold shadow-sm outline-none focus:ring-2 focus:ring-theme" />
+
+                {% if turnstile_site_key %}
+                  <div id="turnstile-widget" class="hidden"></div>
+                {% endif %}
+
+                <button data-click="finalizarReserva" id="btn-confirmar"
+                        class="w-full gradient-bg text-white font-black py-5 rounded-2xl shadow-xl transition-all mt-4 tracking-widest uppercase hover:opacity-90">
+                  Confirmar Agendamento
+                </button>
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ========= MODAL SUCESSO ========= #}
+  <div id="modal-sucesso" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/80 backdrop-blur-md transition-opacity"></div>
+    <div class="relative bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-sm transform animate-pop flex flex-col items-center z-50">
+      <div class="w-full p-6 text-center bg-gray-50 border-b border-gray-100">
+        <div class="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
+          <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+          </svg>
+        </div>
+        <h3 class="text-xl font-black text-gray-800">Agendamento Confirmado!</h3>
+        <p class="text-xs text-gray-500 mt-1">Seu horário foi reservado.</p>
+      </div>
+
+      <div id="loading-ticket" class="p-10 flex flex-col items-center">
+        <div class="w-8 h-8 border-4 border-theme border-t-transparent rounded-full animate-spin"></div>
+        <p class="text-xs text-gray-400 mt-3 font-bold uppercase tracking-widest">Gerando Ticket...</p>
+      </div>
+
+      <div id="area-ticket-pronto" class="hidden p-6 w-full flex justify-center bg-gray-100 border-b border-gray-100">
+        <img id="img-ticket-gerado" class="rounded-xl shadow-lg w-[280px] h-auto border border-gray-200 block mx-auto" alt="Ticket" />
+      </div>
+
+      <div id="erro-ticket" class="hidden p-6 text-center text-gray-400 text-xs italic">
+        Não foi possível gerar a imagem do ticket.<br />Mas seu agendamento está confirmado!
+      </div>
+
+      <div class="p-6 w-full space-y-3 bg-white">
+        <a id="btn-download-ticket" href="#"
+           class="block w-full text-center gradient-bg text-white font-bold py-3.5 rounded-xl shadow-lg hover:opacity-90 transition-transform active:scale-95 flex items-center justify-center gap-2 cursor-pointer decoration-0">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="7 10 12 15 17 10"/>
+            <line x1="12" y1="15" x2="12" y2="3"/>
+          </svg>
+          Baixar Comprovante
+        </a>
+
+        <button data-click="reloadPage" class="block w-full text-center text-gray-500 font-bold py-3 rounded-xl hover:bg-gray-50 transition">Novo Agendamento</button>
+        <button data-click="fecharModalSucesso" class="block w-full text-center text-theme font-bold py-3 rounded-xl border border-gray-100 hover:bg-theme-light transition">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  {# ========= MODAL ERRO ========= #}
+  <div id="modal-erro" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" data-click="fecharModalErro"></div>
+    <div class="relative bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-sm transform animate-pop z-50">
+      <div class="h-3 bg-red-500 w-full"></div>
+      <div class="p-8 text-center flex flex-col items-center gap-4">
+        <div class="w-20 h-20 rounded-full bg-red-50 flex items-center justify-center mb-2 animate-bounce">
+          <svg class="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"></path>
+          </svg>
+        </div>
+        <h3 class="text-2xl font-black text-gray-800">Ops!</h3>
+        <p id="msg-erro-texto" class="text-gray-500 font-medium leading-relaxed">Algo deu errado.</p>
+        <button data-click="fecharModalErro" class="w-full bg-red-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-red-200 mt-4 hover:bg-red-600 transition-colors active:scale-95">
+          Tentar Novamente
+        </button>
+      </div>
+    </div>
+  </div>
+
+  {% with NONCE=csp_nonce|default:'' %}
+  <script {% if NONCE %}nonce="{{ NONCE }}"{% endif %}>
+    // ========= CONFIG =========
+    const SALON_SLUG = "{{ salao.slug }}";
+    const SERVICOS = JSON.parse(document.getElementById('json-servicos').textContent || '[]');
+    const FERIADOS = JSON.parse(document.getElementById('json-feriados').textContent || '[]');
+    const FOLGAS = JSON.parse(document.getElementById('json-folgas').textContent || '[]');
+    const THEME_HEX = (getComputedStyle(document.documentElement).getPropertyValue('--cor-primaria').trim().replace('#','') || '8E44AD');
+
+    // Se seus endpoints no Django NÃO forem /api/v1/..., basta sobrescrever essas 3 variáveis no template/contexto:
+    // - profissionais_url_template: ex "/saloes/{slug}/profissionais-por-servico/{service_id}"
+    // - disponibilidade_url_template: ex "/saloes/{slug}/disponibilidade/{iso}?service_id={service_id}"
+    // - agendar_url: ex "/saloes/{slug}/agendar"
+    const PROFISSIONAIS_URL_TEMPLATE = "{{ profissionais_url_template|default:'/api/v1/saloes/{slug}/profissionais-por-servico/{service_id}' }}";
+    const DISPONIBILIDADE_URL_TEMPLATE = "{{ disponibilidade_url_template|default:'/api/v1/saloes/{slug}/disponibilidade/{iso}?service_id={service_id}' }}";
+    const AGENDAR_URL = "{{ agendar_url|default:'/api/v1/saloes/' }}{{ salao.slug }}{{ agendar_url_suffix|default:'/agendar' }}";
+
+    // ========= EVENT DELEGATION =========
+    document.addEventListener('click', (e) => {
+      const el = e.target.closest('[data-click]');
+      if(!el) return;
+      const action = el.dataset.click;
+      const arg = el.dataset.id || el;
+      if(typeof window[action] === 'function') window[action](arg);
+    });
+
+    document.addEventListener('change', (e) => {
+      const el = e.target.closest('[data-change]');
+      if(!el) return;
+      const action = el.dataset.change;
+      if(typeof window[action] === 'function') window[action](el);
+    });
+
+    // ========= STATE =========
+    let selectedService = null;
+    let selectedServiceName = "Serviço";
+    let selectedProfessional = null;
+    let selectedDate = null;
+    let selectedTime = null;
+
+    // ========= UI HELPERS =========
+    function filtrarCategoria(btnOrId){
+      const btn = (btnOrId instanceof HTMLElement) ? btnOrId : document.querySelector(`.cat-btn[data-id="${btnOrId}"]`);
+      if(!btn) return;
+      const catId = btn.dataset.id;
+
+      document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      const cards = document.querySelectorAll('.service-card');
+      let visibleCount = 0;
+
+      cards.forEach(card => {
+        const cardCat = card.dataset.cat;
+        if(catId === 'todas' || cardCat === catId){
+          card.style.display = 'flex';
+          card.classList.remove('animate-pop'); void card.offsetWidth; card.classList.add('animate-pop');
+          visibleCount++;
+        } else {
+          card.style.display = 'none';
+        }
+      });
+
+      const msg = document.getElementById('msg-sem-servico');
+      msg.style.display = (visibleCount === 0) ? 'block' : 'none';
+    }
+
+    function mostrarErro(mensagem){
+      document.getElementById('msg-erro-texto').innerText = mensagem;
+      document.getElementById('modal-erro').classList.remove('hidden');
+    }
+    function fecharModalErro(){
+      document.getElementById('modal-erro').classList.add('hidden');
+      if(selectedDate) buscarHorarios(selectedDate);
+    }
+    function reloadPage(){ location.reload(); }
+    function fecharModalSucesso(){ location.reload(); }
+
+    // ========= CSRF (Django) =========
+    function getCookie(name){
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if(parts.length === 2) return parts.pop().split(';').shift();
+      return null;
+    }
+    const CSRF_TOKEN = "{{ csrf_token }}";
+    function getCsrfToken(){
+      // Se o template tiver csrf_token, usa ele; senão tenta cookie.
+      if(CSRF_TOKEN && CSRF_TOKEN !== "NOTPROVIDED") return CSRF_TOKEN;
+      return getCookie('csrftoken');
+    }
+
+    // ========= TURNSTILE (opcional) =========
+    let turnstileWidgetId = null;
+    let pendingSubmit = false;
+
+    function turnstileOnload(){
+      try{
+        const siteKey = "{{ turnstile_site_key|default:'' }}";
+        if(!siteKey) return;
+
+        turnstileWidgetId = turnstile.render('#turnstile-widget', {
+          sitekey: siteKey,
+          size: 'invisible',
+          callback: (token) => {
+            pendingSubmit = false;
+            submitAgendamento(token);
+          },
+          'error-callback': () => {
+            pendingSubmit = false;
+            document.getElementById('btn-confirmar').disabled = false;
+            mostrarErro("Não foi possível validar a segurança (anti-bot).");
+          }
+        });
+      } catch(e){}
+    }
+
+    // ========= BLOQUEIOS =========
+    // FERIADOS pode ser array de objetos {data: 'YYYY-MM-DD'} ou strings. Normaliza.
+    const feriadosIso = (Array.isArray(FERIADOS) ? FERIADOS : []).map(f => (typeof f === 'string' ? f : f.data)).filter(Boolean);
+    const diasFechadosStr = "{{ salao.dias_fechados|default:'' }}";
+    const diasFechados = diasFechadosStr.split(',').filter(x => x !== '').map(n => Number(n));
+
+    const bloqueios = { feriados: feriadosIso, dias_recorrentes: diasFechados };
+
+    // ========= MASK WHATSAPP =========
+    const phoneInput = document.getElementById('cliente-whatsapp');
+    if(phoneInput){
+      phoneInput.addEventListener('input', function(e){
+        let value = e.target.value.replace(/\D/g,'');
+        if(value.length > 11) value = value.slice(0,11);
+        if(value.length > 10) value = value.replace(/^(\d{2})(\d{1})(\d{4})(\d{4}).*/, '($1) $2 $3-$4');
+        else if(value.length > 6) value = value.replace(/^(\d{2})(\d{4})(\d{0,4}).*/, '($1) $2-$3');
+        else if(value.length > 2) value = value.replace(/^(\d{2})(\d{0,5}).*/, '($1) $2');
+        else if(value.length > 0) value = value.replace(/^(\d{0,2})/, '($1');
+        e.target.value = value;
+      });
+    }
+
+    // ========= FLOW =========
+    async function selecionarServico(input){
+      selectedService = input.value;
+      const spanNome = input.closest('.service-card').querySelector('span.block');
+      selectedServiceName = spanNome ? spanNome.innerText : "Serviço";
+
+      document.querySelectorAll('.service-card').forEach(card => card.classList.remove('selected-card'));
+      input.parentElement.classList.add('selected-card');
+
+      document.getElementById('section-profissionais').classList.remove('opacity-40','pointer-events-none');
+      const containerProf = document.getElementById('lista-profissionais');
+      containerProf.innerHTML = '<p class="text-theme font-bold loading-text ml-2 text-sm">🔍 Buscando especialistas...</p>';
+
+      try{
+        const url = PROFISSIONAIS_URL_TEMPLATE
+          .replace('{slug}', encodeURIComponent(SALON_SLUG))
+          .replace('{service_id}', encodeURIComponent(selectedService));
+
+        const resP = await fetch(url, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+        const ct = (resP.headers.get('content-type') || '').toLowerCase();
+        let payload = null;
+        if(ct.includes('application/json')){
+          payload = await resP.json();
+        } else {
+          const text = await resP.text();
+          throw new Error(`Resposta não-JSON (${resP.status}). Verifique a rota PROFISSIONAIS_URL_TEMPLATE. Trecho: ${text.slice(0,120)}`);
+        }
+        const profissionais = Array.isArray(payload) ? payload : (payload.profissionais || payload.results || payload.data || []);
+        renderizarProfissionais(Array.isArray(profissionais) ? profissionais : []);
+        document.getElementById('section-profissionais').scrollIntoView({behavior:'smooth', block:'center'});
+      } catch(e){
+        containerProf.innerHTML = '<p class="text-red-500 text-sm">Erro ao carregar profissionais. Confira a rota/JSON no console (F12).</p>';
+      }
+    }
+
+    function renderizarProfissionais(lista){
+      const container = document.getElementById('lista-profissionais');
+      container.innerHTML = '';
+      if(!lista.length){
+        container.innerHTML = '<p class="text-orange-500 font-bold text-sm ml-2">Nenhum profissional habilitado para este serviço.</p>';
+        return;
+      }
+
+      lista.forEach(prof => {
+        const div = document.createElement('div');
+        div.className = "prof-card flex-shrink-0 text-center w-28 cursor-pointer group";
+        div.onclick = () => {
+          selectedProfessional = prof.id;
+          document.querySelectorAll('.prof-img-container').forEach(c => c.classList.remove('selected-prof','border-theme'));
+          div.querySelector('.prof-img-container').classList.add('selected-prof','border-theme');
+
+          document.getElementById('section-calendario').classList.remove('hidden');
+          renderizarCalendario();
+          document.getElementById('section-calendario').scrollIntoView({behavior:'smooth'});
+        };
+
+        const nome = (prof.nome || '').toString();
+        div.innerHTML = `
+          <div class="prof-img-container w-20 h-20 mx-auto rounded-full bg-white mb-3 border-4 border-gray-100 transition-all shadow-sm flex items-center justify-center">
+            <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(nome)}&background=${THEME_HEX}&color=fff&bold=true" class="rounded-full w-full h-full">
+          </div>
+          <span class="text-[10px] font-black uppercase text-gray-500">${nome}</span>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    function renderizarCalendario(){
+      const grid = document.getElementById('calendar-grid');
+      grid.innerHTML = '';
+      const diasS = ['D','S','T','Q','Q','S','S'];
+      diasS.forEach(d => grid.innerHTML += `<div class="font-black text-gray-300 text-[10px] pb-2">${d}</div>`);
+
+      const hoje = new Date();
+      hoje.setHours(0,0,0,0);
+
+      const meses = ["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+      const mesesCurto = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+
+      const dataFinal = new Date(hoje);
+      dataFinal.setDate(hoje.getDate() + 30);
+
+      const mesInicial = meses[hoje.getMonth()];
+      const anoInicial = hoje.getFullYear();
+      const mesFinal = meses[dataFinal.getMonth()];
+      const anoFinal = dataFinal.getFullYear();
+
+      let textoHeader = `${mesInicial} ${anoInicial}`;
+      if(mesInicial !== mesFinal || anoInicial !== anoFinal){
+        const anoStr = (anoInicial !== anoFinal) ? ` ${anoFinal}` : ` ${anoInicial}`;
+        textoHeader = `${mesInicial.substring(0,3)} - ${mesFinal.substring(0,3)}${anoStr}`;
+      }
+      document.getElementById('label-mes-ano').innerText = textoHeader;
+
+      const primeiroDiaExibido = new Date(hoje);
+      const deslocamento = primeiroDiaExibido.getDay();
+      for(let j=0; j<deslocamento; j++) grid.innerHTML += '<div></div>';
+
+      for(let i=0; i<30; i++){
+        const data = new Date();
+        data.setDate(hoje.getDate() + i);
+
+        const iso = data.getFullYear() + '-' + String(data.getMonth()+1).padStart(2,'0') + '-' + String(data.getDate()).padStart(2,'0');
+
+        const jsDay = data.getDay();
+        const mapeamento = { 1:0, 2:1, 3:2, 4:3, 5:4, 6:5, 0:6 }; // domingo vira 6
+        const pythonDay = mapeamento[jsDay];
+
+        const ehFeriado = bloqueios.feriados.includes(iso);
+        const ehDiaFechado = bloqueios.dias_recorrentes.includes(pythonDay);
+        const estaBloqueado = ehFeriado || ehDiaFechado;
+
+        const btn = document.createElement('button');
+
+        if(data.getDate() === 1){
+          btn.innerHTML = `1 <br><span class="text-[9px] uppercase">${mesesCurto[data.getMonth()]}</span>`;
+          btn.classList.add("leading-none");
+        } else {
+          btn.innerText = data.getDate();
+        }
+
+        btn.className = `p-3 rounded-xl font-bold transition-all flex flex-col items-center justify-center h-12 ${estaBloqueado ? 'calendar-day disabled' : 'bg-white text-gray-700 hover:bg-theme-light shadow-sm border border-gray-100'}`;
+
+        if(!estaBloqueado){
+          btn.onclick = () => {
+            selectedDate = iso;
+            document.querySelectorAll('#calendar-grid button').forEach(b => b.classList.remove('day-selected'));
+            btn.classList.add('day-selected');
+            buscarHorarios(iso);
+          };
+        } else {
+          btn.disabled = true;
+        }
+
+        grid.appendChild(btn);
+      }
+    }
+
+    async function buscarHorarios(iso){
+      const container = document.getElementById('lista-horarios');
+      document.getElementById('section-horarios').classList.remove('hidden');
+      container.innerHTML = '<p class="col-span-full text-center text-theme font-bold p-4">Consultando horários...</p>';
+
+      try{
+        const url = DISPONIBILIDADE_URL_TEMPLATE
+          .replace('{slug}', encodeURIComponent(SALON_SLUG))
+          .replace('{iso}', encodeURIComponent(iso))
+          .replace('{service_id}', encodeURIComponent(selectedService));
+
+        const res = await fetch(url, { headers: { 'Accept':'application/json' }, credentials: 'same-origin' });
+        const ct = (res.headers.get('content-type') || '').toLowerCase();
+        const data = ct.includes('application/json') ? await res.json() : null;
+        if(!data){
+          const text = await res.text();
+          throw new Error(`Resposta não-JSON (${res.status}). Verifique a rota DISPONIBILIDADE_URL_TEMPLATE. Trecho: ${text.slice(0,120)}`);
+        }
+
+
+        const profData = Array.isArray(data) ? data.find(p => String(p.professional_id) === String(selectedProfessional)) : null;
+        container.innerHTML = '';
+
+        if(!profData || !profData.horarios || !profData.horarios.length){
+          container.innerHTML = '<p class="col-span-full text-center text-gray-400 font-bold p-4 bg-gray-50 rounded-2xl italic">Nenhum horário disponível para esta data.</p>';
+          return;
+        }
+
+        profData.horarios.forEach(h => {
+          const btn = document.createElement('button');
+          btn.className = "slot-btn bg-white rounded-2xl py-4 text-sm font-black text-gray-700 shadow-sm";
+          btn.innerText = h;
+          btn.onclick = () => {
+            selectedTime = h;
+            document.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('slot-selected'));
+            btn.classList.add('slot-selected');
+            document.getElementById('section-finalizar').classList.remove('hidden');
+            document.getElementById('section-finalizar').scrollIntoView({behavior:'smooth'});
+          };
+          container.appendChild(btn);
+        });
+
+        document.getElementById('section-horarios').scrollIntoView({behavior:'smooth'});
+      } catch(e){
+        container.innerHTML = '<p class="col-span-full text-center text-red-500 font-bold p-4 bg-red-50 rounded-2xl">Erro ao consultar horários.</p>';
+      }
+    }
+
+    async function finalizarReserva(){
+      const nome = document.getElementById('cliente-nome').value.trim();
+      const fone = document.getElementById('cliente-whatsapp').value.trim();
+      if(!nome || fone.length < 5) return mostrarErro("Preencha seu nome e um telefone válido.");
+
+      const btn = document.getElementById('btn-confirmar');
+      btn.disabled = true;
+      btn.innerText = "Processando...";
+
+      const siteKey = "{{ turnstile_site_key|default:'' }}";
+      if(siteKey && typeof turnstile !== 'undefined' && turnstileWidgetId !== null){
+        try{
+          pendingSubmit = true;
+          btn.innerText = "Verificando...";
+          turnstile.execute(turnstileWidgetId);
+          return;
+        } catch(e){}
+      }
+      return submitAgendamento(null);
+    }
+
+    async function submitAgendamento(turnstileToken){
+      const nome = document.getElementById('cliente-nome').value.trim();
+      const fone = document.getElementById('cliente-whatsapp').value.trim();
+      const btn = document.getElementById('btn-confirmar');
+      const originalText = "Confirmar Agendamento";
+
+      btn.disabled = true;
+      btn.innerText = "Processando...";
+
+      try{
+        const csrf = getCsrfToken();
+
+        const res = await fetch(AGENDAR_URL, {
+          credentials: 'same-origin',
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(csrf ? { 'X-CSRFToken': csrf } : {})
+          },
+          body: JSON.stringify({
+            data: selectedDate,
+            hora_inicio: selectedTime,
+            cliente_nome: nome,
+            cliente_whatsapp: fone,
+            professional_id: selectedProfessional,
+            service_id: selectedService,
+            turnstile_token: turnstileToken
+          })
+        });
+
+        if(res.ok){
+          document.getElementById('modal-sucesso').classList.remove('hidden');
+          try{
+            gerarVoucher(nome, fone, selectedDate, selectedTime, selectedServiceName);
+          } catch(err){
+            console.error("Erro voucher:", err);
+            document.getElementById('loading-ticket').classList.add('hidden');
+            document.getElementById('erro-ticket').classList.remove('hidden');
+          }
+        } else {
+          let msg = "Ocorreu um erro ao agendar.";
+          try{
+            const j = await res.json();
+            if(j && (j.detail || j.message)) msg = j.detail || j.message;
+          } catch(e){}
+          mostrarErro(msg);
+          btn.disabled = false;
+          btn.innerText = originalText;
+          try{ if(typeof turnstile !== 'undefined' && turnstileWidgetId !== null) turnstile.reset(turnstileWidgetId); } catch(e){}
+        }
+      } catch(e){
+        mostrarErro("Erro de conexão.");
+        btn.disabled = false;
+        btn.innerText = originalText;
+      }
+    }
+
+    function gerarVoucher(nome, tel, data, hora, servico){
+      const safeNome = nome || "Cliente";
+      const safeTel = tel || "---";
+      const safeData = data ? data.split('-').reverse().join('/') : "--/--";
+      const safeHora = hora || "--:--";
+      const safeServico = servico || "Serviço";
+
+      document.getElementById('v-nome').innerText = safeNome;
+      document.getElementById('v-tel').innerText = safeTel;
+      document.getElementById('v-data').innerText = safeData;
+      document.getElementById('v-hora').innerText = safeHora;
+      document.getElementById('v-servico').innerText = safeServico;
+
+      const qrContainer = document.getElementById('v-qrcode');
+      qrContainer.innerHTML = '';
+
+      // Evita crash do qrcodejs (overflow): limita texto.
+      let qrText = `${safeNome} | ${safeData} ${safeHora} | ${safeServico}`;
+      if(qrText.length > 80) qrText = qrText.substring(0,80) + "...";
+
+      new QRCode(qrContainer, {
+        text: qrText,
+        width: 128,
+        height: 128,
+        colorDark: "{{ salao.cor_do_tema|default:'#334155' }}",
+        colorLight: "#ffffff",
+        correctLevel: QRCode.CorrectLevel.L
+      });
+
+      setTimeout(() => {
+        const elemento = document.getElementById('voucher-template');
+        html2canvas(elemento, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+          logging: false,
+          scrollX: 0,
+          scrollY: 0
+        }).then(canvas => {
+          const imgData = canvas.toDataURL("image/png");
+          const imgElement = document.getElementById('img-ticket-gerado');
+          imgElement.src = imgData;
+
+          document.getElementById('loading-ticket').classList.add('hidden');
+          document.getElementById('area-ticket-pronto').classList.remove('hidden');
+
+          const btnDown = document.getElementById('btn-download-ticket');
+          btnDown.href = imgData;
+          btnDown.download = `Voucher-${(safeNome.split(' ')[0]||'Cliente')}-${safeData.replace(/\//g,'-')}.png`;
+        }).catch(err => {
+          console.error("Erro html2canvas:", err);
+          document.getElementById('loading-ticket').classList.add('hidden');
+          document.getElementById('erro-ticket').classList.remove('hidden');
+        });
+      }, 800);
+    }
+  </script>
+  {% endwith %}
+</body>
+</html>
