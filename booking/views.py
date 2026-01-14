@@ -6,48 +6,47 @@ from django.views.decorators.csrf import csrf_exempt
 from core.models import Salon
 from scheduling.models import Service, Professional, Appointment, Holiday, SpecialSchedule, WorkingHour, ProfessionalBreak
 
-# --- FUNÇÃO AUXILIAR DE DISPONIBILIDADE (A lógica difícil) ---
+# --- FUNÇÃO AUXILIAR DE DISPONIBILIDADE ---
 def check_slot_availability(salao, prof, svc, date_obj, slot_time_obj):
-    # 1. Checa dia fechado do salão
-    weekday = date_obj.weekday() # 0=Segunda
+    # 1. Checa se o dia da semana está configurado como fechado no salão
+    weekday = date_obj.weekday() # 0=Segunda, 6=Domingo
     if salao.dias_fechados and str(weekday) in salao.dias_fechados.split(','):
         return False
         
-    # 2. Checa Feriado
+    # 2. Verifica se a data é um feriado cadastrado para o salão
     if Holiday.objects.filter(salon=salao, data=date_obj).exists():
         return False
 
-    # 3. Checa Folga Individual (Dia todo ou parcial)
+    # 3. Verifica folgas ou agendas especiais do profissional
     folgas = SpecialSchedule.objects.filter(salon=salao, professional=prof, data=date_obj)
     for folga in folgas:
-        if not folga.hora_inicio: # Folga dia todo
+        if not folga.hora_inicio: # Se não houver hora, é folga o dia todo
             return False
-        # Se for folga parcial, verificamos colisão abaixo
 
-    # 4. Checa Escala de Trabalho
+    # 4. Verifica a Escala de Trabalho (WorkingHour) do profissional para este dia
     work_hour = WorkingHour.objects.filter(professional=prof, day_of_week=weekday).first()
     if not work_hour:
         return False
     
-    # Definir limites do slot
+    # Define os limites de início e fim do atendimento (slot)
     duration = svc.duracao_minutos if svc else salao.intervalo_minutos
     slot_start = slot_time_obj
-    # Cálculo chato de hora final:
+    
+    # Cálculo da hora final do serviço
     dummy_date = datetime(2000, 1, 1, slot_start.hour, slot_start.minute)
     slot_end = (dummy_date + timedelta(minutes=duration)).time()
 
-    # Verifica se está dentro do horário de trabalho
+    # Verifica se o serviço termina antes do fim do expediente do profissional
     if slot_start < work_hour.start_time or slot_end > work_hour.end_time:
         return False
 
-    # 5. Checa Intervalos do Profissional (Almoço)
+    # 5. Verifica intervalos (como horário de almoço)
     breaks = ProfessionalBreak.objects.filter(professional=prof, day_of_week=weekday)
     for b in breaks:
-        # Se houver sobreposição
         if (slot_start < b.end_time and slot_end > b.start_time):
             return False
 
-    # 6. Checa Agendamentos Existentes (Overlap)
+    # 6. Verifica sobreposição com agendamentos já existentes
     appointments = Appointment.objects.filter(professional=prof, data=date_obj)
     for appt in appointments:
         appt_duration = appt.service.duracao_minutos if appt.service else salao.intervalo_minutos
@@ -60,11 +59,11 @@ def check_slot_availability(salao, prof, svc, date_obj, slot_time_obj):
             
     return True
 
-# --- VIEWS ---
+# --- VIEWS PRINCIPAIS ---
 
 def pagina_agendamento(request, slug):
     salao = get_object_or_404(Salon, slug=slug)
-    # Serialização para o template
+    # Coleta serviços e categorias vinculados ao salão
     servicos = list(salao.service_set.all().values())
     categorias = list(salao.category_set.all().values())
     
@@ -72,13 +71,13 @@ def pagina_agendamento(request, slug):
         "salao": salao,
         "servicos": servicos,
         "categorias": categorias,
-        "turnstile_site_key": "" # Coloque sua key aqui se tiver
+        "turnstile_site_key": "" # Insira sua site key do Cloudflare Turnstile aqui
     }
     return render(request, "booking/agendar.html", context)
 
 def api_profissionais_por_servico(request, slug, service_id):
     salao = get_object_or_404(Salon, slug=slug)
-    # Filtra profissionais que têm o serviço vinculado
+    # Filtra apenas profissionais habilitados para o serviço selecionado
     profs = Professional.objects.filter(salon=salao, services__id=service_id)
     data = [{"id": p.id, "nome": p.nome} for p in profs]
     return JsonResponse(data, safe=False)
@@ -93,23 +92,15 @@ def api_disponibilidade(request, slug, data_iso):
     except ValueError:
         return JsonResponse([], safe=False)
 
-    # Quais profissionais checar?
-    if svc:
-        profs = Professional.objects.filter(salon=salao, services=svc)
-    else:
-        profs = Professional.objects.filter(salon=salao)
-
+    profs = Professional.objects.filter(salon=salao, services=svc) if svc else Professional.objects.filter(salon=salao)
     resultado = []
     
     for prof in profs:
-        # Pega a escala do dia
         weekday = date_obj.weekday()
         wh = WorkingHour.objects.filter(professional=prof, day_of_week=weekday).first()
         if not wh: continue
 
         slots_disponiveis = []
-        
-        # Loop de horários (do inicio ao fim do expediente do profissional)
         current_time = datetime.combine(date_obj, wh.start_time)
         end_time = datetime.combine(date_obj, wh.end_time)
         intervalo = salao.intervalo_minutos
@@ -117,12 +108,11 @@ def api_disponibilidade(request, slug, data_iso):
         while current_time + timedelta(minutes=svc.duracao_minutos if svc else 30) <= end_time:
             time_obj = current_time.time()
             if check_slot_availability(salao, prof, svc, date_obj, time_obj):
-                # Regra: não mostrar passado se for hoje
+                # Esconde horários passados se a data for hoje
                 if date_obj == datetime.now().date() and time_obj < datetime.now().time():
                     pass
                 else:
                     slots_disponiveis.append(time_obj.strftime("%H:%M"))
-            
             current_time += timedelta(minutes=intervalo)
             
         if slots_disponiveis:
@@ -131,37 +121,37 @@ def api_disponibilidade(request, slug, data_iso):
                 "nome": prof.nome,
                 "horarios": slots_disponiveis
             })
-
     return JsonResponse(resultado, safe=False)
 
 @csrf_exempt
 def api_confirmar_agendamento(request, slug):
-    if request.method != "POST": return JsonResponse({"error": "Method not allowed"}, status=405)
+    if request.method != "POST": 
+        return JsonResponse({"error": "Método não permitido"}, status=405)
     
     salao = get_object_or_404(Salon, slug=slug)
-    data = json.loads(request.body)
-    
-    # Validações básicas
     try:
+        data = json.loads(request.body)
+        
+        # Extração e validação dos dados enviados pelo agendar.html
         svc = Service.objects.get(id=data['service_id'])
         prof = Professional.objects.get(id=data['professional_id'])
         date_obj = datetime.strptime(data['data'], "%Y-%m-%d").date()
         time_obj = datetime.strptime(data['hora_inicio'], "%H:%M").time()
+        
+        # Validação final de segurança para evitar agendamentos duplicados no mesmo microssegundo
+        if not check_slot_availability(salao, prof, svc, date_obj, time_obj):
+            return JsonResponse({"message": "Este horário acabou de ser preenchido por outra pessoa."}, status=409)
+
+        # Criação do agendamento
+        Appointment.objects.create(
+            salon=salao,
+            professional=prof,
+            service=svc,
+            cliente_nome=data['cliente_nome'],
+            cliente_whatsapp=data['cliente_whatsapp'],
+            data=date_obj,
+            hora_inicio=time_obj
+        )
+        return JsonResponse({"ok": True})
     except Exception as e:
-        return JsonResponse({"message": "Dados inválidos"}, status=400)
-
-    # Checagem final de segurança antes de gravar
-    if not check_slot_availability(salao, prof, svc, date_obj, time_obj):
-        return JsonResponse({"message": "Horário não está mais disponível."}, status=409)
-
-    Appointment.objects.create(
-        salon=salao,
-        professional=prof,
-        service=svc,
-        cliente_nome=data['cliente_nome'],
-        cliente_whatsapp=data['cliente_whatsapp'],
-        data=date_obj,
-        hora_inicio=time_obj
-    )
-    
-    return JsonResponse({"ok": True})
+        return JsonResponse({"message": f"Erro nos dados enviados: {str(e)}"}, status=400)
