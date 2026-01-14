@@ -311,6 +311,26 @@
             </div>
             <div class="p-6 space-y-6 overflow-y-auto">
                 <input type="hidden" id="mp_id">
+                
+                <div class="flex items-center gap-6">
+                    <div class="relative group">
+                        <div id="preview-foto-container" class="w-24 h-24 rounded-full bg-slate-100 border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden relative">
+                            <i data-lucide="camera" class="w-8 h-8 text-slate-400" id="icon-camera"></i>
+                            <img id="preview-foto" src="" class="w-full h-full object-cover hidden">
+                        </div>
+                        <label for="mp_foto" class="absolute bottom-0 right-0 bg-theme text-white p-1.5 rounded-full shadow-md cursor-pointer hover:bg-opacity-90">
+                            <i data-lucide="upload" class="w-4 h-4"></i>
+                        </label>
+                        <input type="file" id="mp_foto" class="hidden" accept="image/*" onchange="previewImagem(this)">
+                    </div>
+                    <div class="flex-1">
+                        <h4 class="font-bold text-slate-700">Foto de Perfil</h4>
+                        <p class="text-xs text-slate-500 mb-2">Recomendado: Quadrada (ex: 500x500px)</p>
+                        <button type="button" onclick="removerFoto()" id="btn-remover-foto" class="text-red-500 text-xs font-bold hover:underline hidden">Remover foto atual</button>
+                        <input type="hidden" id="mp_remover_foto" value="false">
+                    </div>
+                </div>
+
                 <div class="grid md:grid-cols-2 gap-5">
                     <div><label class="text-sm font-bold text-slate-700 mb-1 block">Nome</label><input id="mp_nome" class="input-field"></div>
                     <div><label class="text-sm font-bold text-slate-700 mb-1 block">Especialidade</label><input id="mp_esp" class="input-field"></div>
@@ -403,6 +423,122 @@
             alert("Erro na operação: " + e.message);
         }
     }
+
+
+
+    // Imagens
+
+
+    // --- LÓGICA DE IMAGEM ---
+    function previewImagem(input) {
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                document.getElementById('preview-foto').src = e.target.result;
+                document.getElementById('preview-foto').classList.remove('hidden');
+                document.getElementById('icon-camera').classList.add('hidden');
+                document.getElementById('mp_remover_foto').value = 'false';
+            }
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+
+    function removerFoto() {
+        document.getElementById('mp_foto').value = ""; // Limpa input
+        document.getElementById('preview-foto').src = "";
+        document.getElementById('preview-foto').classList.add('hidden');
+        document.getElementById('icon-camera').classList.remove('hidden');
+        document.getElementById('btn-remover-foto').classList.add('hidden');
+        document.getElementById('mp_remover_foto').value = 'true';
+    }
+
+    function renderProfissionais(){
+        const c = document.getElementById('gridProfissionais'); 
+        c.innerHTML = PROFISSIONAIS.map(p => {
+            // Lógica para mostrar Foto ou Avatar
+            const imgHtml = p.foto_url 
+                ? `<img src="${p.foto_url}" class="rounded-full w-full h-full object-cover">`
+                : `<img src="https://ui-avatars.com/api/?name=${p.nome}&background=random" class="rounded-full w-full h-full">`;
+
+            return `<div class="card p-5"><div class="flex justify-between items-start mb-3"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-full border-2 border-theme p-0.5 overflow-hidden">${imgHtml}</div><div><h3 class="font-bold text-lg leading-none">${p.nome}</h3><p class="text-xs text-slate-500">${p.especialidade||'Geral'}</p></div></div><div class="flex gap-2"><button onclick="abrirModalProfissional(${p.id})" class="text-blue-500 hover:bg-blue-50 p-1 rounded"><i data-lucide="edit-2" class="w-4 h-4"></i></button><button onclick="confirmarExclusao('profissionais',${p.id})" class="text-red-500 hover:bg-red-50 p-1 rounded"><i data-lucide="trash" class="w-4 h-4"></i></button></div></div></div>`;
+        }).join('');
+        lucide.createIcons();
+    }
+
+    function abrirModalProfissional(id=null){
+        const p = id ? PROFISSIONAIS.find(x=>x.id==id) : null;
+        document.getElementById('modal-profissional').classList.remove('hidden');
+        document.getElementById('mp_id').value=id||''; 
+        document.getElementById('mp_nome').value=p?p.nome:''; 
+        document.getElementById('mp_esp').value=p?p.especialidade:'';
+        
+        // Reset Imagem
+        document.getElementById('mp_foto').value = "";
+        document.getElementById('mp_remover_foto').value = "false";
+        if (p && p.foto_url) {
+            document.getElementById('preview-foto').src = p.foto_url;
+            document.getElementById('preview-foto').classList.remove('hidden');
+            document.getElementById('icon-camera').classList.add('hidden');
+            document.getElementById('btn-remover-foto').classList.remove('hidden');
+        } else {
+            removerFoto(); // Reseta visual
+            document.getElementById('btn-remover-foto').classList.add('hidden');
+        }
+
+        // ... (resto da função igual: serviços, dias, etc) ...
+        currentProfIntervals=p?p.intervalos:[]; renderIntervalos();
+        const box=document.getElementById('mp_lista_servicos'); box.innerHTML='';
+        const renderChkGroup = (t, l) => {
+            if(!l.length) return '';
+            const items = l.map(s => `<label class="cursor-pointer relative block group h-full"><input type="checkbox" class="mp_servicos check-card peer absolute opacity-0 w-full h-full inset-0 z-10 cursor-pointer" value="${s.id}" ${p&&p.servicos_ids.includes(s.id)?'checked':''}><div class="p-3 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600 transition-all h-full flex items-center justify-center text-center group-hover:border-theme/50">${s.nome}</div></label>`).join('');
+            return `<div class="bg-slate-50 p-3 rounded-xl border border-slate-100"><h5 class="text-xs font-bold text-slate-500 uppercase mb-2 ml-1">${t}</h5><div class="grid grid-cols-2 sm:grid-cols-3 gap-3">${items}</div></div>`;
+        };
+        CATEGORIAS.forEach(c => box.innerHTML+=renderChkGroup(c.nome, SERVICOS.filter(s=>s.category_id==c.id)));
+        box.innerHTML+=renderChkGroup("Outros", SERVICOS.filter(s=>!s.category_id));
+        document.querySelectorAll('.mp_dias').forEach(c=>c.checked=false);
+        if(p&&p.escala.length){ document.getElementById('mp_inicio').value=p.escala[0].start; document.getElementById('mp_fim').value=p.escala[0].end; p.escala.forEach(e=>document.querySelector(`.mp_dias[value="${e.day}"]`).checked=true); }
+    }
+
+    // NOVA FUNÇÃO SALVAR COM FORMDATA (UPLOAD)
+    async function salvarProfissional(){ 
+        const id = document.getElementById('mp_id').value;
+        const formData = new FormData();
+        
+        formData.append('nome', document.getElementById('mp_nome').value);
+        formData.append('especialidade', document.getElementById('mp_esp').value);
+        formData.append('remover_foto', document.getElementById('mp_remover_foto').value);
+        
+        const fileInput = document.getElementById('mp_foto');
+        if (fileInput.files[0]) {
+            formData.append('foto', fileInput.files[0]);
+        }
+
+        // Dados complexos como JSON string
+        const servicos = Array.from(document.querySelectorAll('.mp_servicos:checked')).map(x=>x.value);
+        formData.append('servicos_ids', JSON.stringify(servicos));
+
+        const escala = {
+            dias: Array.from(document.querySelectorAll('.mp_dias:checked')).map(x=>parseInt(x.value)), 
+            inicio: document.getElementById('mp_inicio').value, 
+            fim: document.getElementById('mp_fim').value
+        };
+        formData.append('escala', JSON.stringify(escala));
+        formData.append('intervalos', JSON.stringify(currentProfIntervals));
+
+        // Envio via fetch (sem Content-Type header manual para FormData funcionar)
+        const url = id ? `/api/v1/profissionais/${id}` : '/api/v1/profissionais/';
+        try {
+            const res = await fetch(url, {
+                method: 'POST', // Sempre POST para upload
+                headers: { 'X-CSRFToken': getCookie('csrftoken') },
+                body: formData
+            });
+            if(res.ok) { location.reload(); } 
+            else { const txt = await res.text(); alert("Erro: " + txt); }
+        } catch(e) { console.error(e); alert("Erro de conexão"); }
+    }
+
+    // fim das imagens
 
     // 4. UI LOGIC
     function switchTab(t){ document.querySelectorAll('.tab-content').forEach(e=>e.classList.add('hidden')); document.getElementById('tab-'+t).classList.remove('hidden'); document.querySelectorAll('.sidebar-link').forEach(e=>e.classList.remove('active')); document.getElementById('btn-'+t).classList.add('active'); history.pushState({},'',`?tab=${t}`); }

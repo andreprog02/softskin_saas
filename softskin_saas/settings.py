@@ -112,3 +112,6 @@ LOGIN_REDIRECT_URL = '/api/v1/app'
 
 # Depois de sair, vai para cá:
 LOGOUT_REDIRECT_URL = '/api/v1/login/'
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')

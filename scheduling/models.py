@@ -7,19 +7,25 @@ class Category(models.Model):
     def __str__(self): return self.nome
 
 class Service(models.Model):
-    salon = models.ForeignKey(Salon, on_delete=models.CASCADE)
-    category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True)
-    nome = models.CharField(max_length=255)
+    salon = models.ForeignKey(Salon, on_delete=models.CASCADE, related_name='services')
+    nome = models.CharField(max_length=100)
     preco = models.DecimalField(max_digits=10, decimal_places=2)
     duracao_minutos = models.IntegerField()
-    def __str__(self): return self.nome
+    category = models.ForeignKey('Category', on_delete=models.SET_NULL, null=True, blank=True, related_name='services')
+
+    def __str__(self):
+        return f"{self.nome} ({self.salon.nome})"
 
 class Professional(models.Model):
-    salon = models.ForeignKey(Salon, on_delete=models.CASCADE)
-    nome = models.CharField(max_length=255)
-    especialidade = models.CharField(max_length=100, blank=True)
-    services = models.ManyToManyField(Service, related_name="professionals")
-    def __str__(self): return self.nome
+    salon = models.ForeignKey(Salon, on_delete=models.CASCADE, related_name='professionals')
+    nome = models.CharField(max_length=100)
+    especialidade = models.CharField(max_length=100, blank=True, null=True)
+    services = models.ManyToManyField(Service, related_name='professionals', blank=True)
+    # NOVO CAMPO
+    foto = models.ImageField(upload_to='profissionais/', blank=True, null=True)
+    
+    def __str__(self):
+        return self.nome
 
 class WorkingHour(models.Model):
     professional = models.ForeignKey(Professional, on_delete=models.CASCADE, related_name="working_hours")

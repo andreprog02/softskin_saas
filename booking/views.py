@@ -105,11 +105,24 @@ def pagina_agendamento(request, slug):
     }
     return render(request, "booking/agendar.html", context)
 
+# ... imports existentes ...
+
 def api_profissionais_por_servico(request, slug, service_id):
     salao = get_object_or_404(Salon, slug=slug)
     profs = Professional.objects.filter(salon=salao, services__id=service_id)
-    data = [{"id": p.id, "nome": p.nome} for p in profs]
+    
+    # ATUALIZADO: Inclui foto_url
+    data = []
+    for p in profs:
+        data.append({
+            "id": p.id, 
+            "nome": p.nome,
+            "foto_url": p.foto.url if p.foto else None
+        })
+        
     return JsonResponse(data, safe=False)
+
+# ... (resto do arquivo igual) ...
 
 def api_disponibilidade(request, slug, data_iso):
     salao = get_object_or_404(Salon, slug=slug)

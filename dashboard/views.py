@@ -34,7 +34,8 @@ def dashboard_view(request):
             "especialidade": p.especialidade,
             "servicos_ids": [s.id for s in p.services.all()],
             "escala": escala,
-            "intervalos": intervalos
+            "intervalos": intervalos,
+            "foto_url": p.foto.url if p.foto else None  # NOVO
         })
 
     context = {
@@ -90,41 +91,99 @@ def api_servicos(request, item_id=None):
 def api_profissionais(request, item_id=None):
     salao = request.user.salon
     
+    # DELETE continua igual
     if request.method == "DELETE":
         p = get_object_or_404(Professional, id=item_id, salon=salao)
         p.delete()
         return JsonResponse({"ok": True})
 
-    data = json.loads(request.body)
-    
+    # Para CREATE e UPDATE com foto, usamos POST e FormData
     if request.method == "POST":
-        p = Professional.objects.create(salon=salao, nome=data['nome'], especialidade=data.get('especialidade'))
-    else:
-        p = get_object_or_404(Professional, id=item_id, salon=salao)
-        p.nome = data.get('nome', p.nome)
-        p.especialidade = data.get('especialidade', p.especialidade)
-        p.save()
+        # Se vier JSON (dashboard antigo ou sem foto), tentamos ler
+        try:
+            data = json.loads(request.body)
+            is_json = True
+        except:
+            data = request.POST # Se vier FormData
+            is_json = False
 
-    if "servicos_ids" in data:
-        p.services.set(data['servicos_ids'])
-    
-    if "escala" in data:
-        p.working_hours.all().delete()
-        p.breaks.all().delete()
-        
-        escala = data["escala"]
-        dias = escala.get("dias", [])
-        inicio = escala.get("inicio")
-        fim = escala.get("fim")
-        
-        for dia in dias:
-            if inicio and fim:
-                WorkingHour.objects.create(professional=p, day_of_week=dia, start_time=inicio, end_time=fim)
+        # LÓGICA DE CRIAÇÃO (Sem item_id)
+        if not item_id:
+            p = Professional.objects.create(
+                salon=salao, 
+                nome=data['nome'], 
+                especialidade=data.get('especialidade')
+            )
+            # Foto na criação
+            if not is_json and 'foto' in request.FILES:
+                p.foto = request.FILES['foto']
+                p.save()
+
+        # LÓGICA DE ATUALIZAÇÃO (Com item_id via POST)
+        else:
+            p = get_object_or_404(Professional, id=item_id, salon=salao)
+            p.nome = data.get('nome', p.nome)
+            p.especialidade = data.get('especialidade', p.especialidade)
             
-            for i in data.get("intervalos", []):
-                ProfessionalBreak.objects.create(professional=p, day_of_week=dia, start_time=i["start"], end_time=i["end"])
+            if not is_json:
+                # Tratamento da foto
+                if 'foto' in request.FILES:
+                    p.foto = request.FILES['foto']
+                elif data.get('remover_foto') == 'true':
+                    p.foto.delete(save=False)
+                    p.foto = None
+            
+            p.save()
 
-    return JsonResponse({"ok": True})
+        # Atualiza campos ManyToMany e JSON (Serviços e Escala)
+        # Nota: No FormData, arrays e objetos complexos vêm como strings JSON
+        
+        # Serviços
+        servicos_raw = data.get('servicos_ids')
+        if servicos_raw:
+            if not is_json and isinstance(servicos_raw, str):
+                try: servicos_ids = json.loads(servicos_raw)
+                except: servicos_ids = []
+            else:
+                servicos_ids = servicos_raw
+            p.services.set(servicos_ids)
+
+        # Escala
+        escala_raw = data.get('escala')
+        if escala_raw:
+            if not is_json and isinstance(escala_raw, str):
+                try: escala_data = json.loads(escala_raw)
+                except: escala_data = {}
+            else:
+                escala_data = escala_raw
+            
+            # Recria escala (lógica mantida)
+            p.working_hours.all().delete()
+            p.breaks.all().delete()
+            
+            dias = escala_data.get("dias", [])
+            inicio = escala_data.get("inicio")
+            fim = escala_data.get("fim")
+            
+            for dia in dias:
+                if inicio and fim:
+                    WorkingHour.objects.create(professional=p, day_of_week=dia, start_time=inicio, end_time=fim)
+            
+            intervalos_raw = data.get('intervalos')
+            if intervalos_raw:
+                if not is_json and isinstance(intervalos_raw, str):
+                    try: intervalos_list = json.loads(intervalos_raw)
+                    except: intervalos_list = []
+                else:
+                    intervalos_list = intervalos_raw
+                
+                for i in intervalos_list:
+                    ProfessionalBreak.objects.create(professional=p, day_of_week=dia, start_time=i["start"], end_time=i["end"])
+
+        return JsonResponse({"ok": True})
+
+    return JsonResponse({"error": "Method not allowed"}, status=405)
+
 
 @csrf_exempt
 @login_required

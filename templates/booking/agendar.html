@@ -235,6 +235,35 @@
             }
         }
 
+
+        // Renderizar funcionários
+
+        // Dentro da função renderizarProfissionais(lista)
+
+lista.forEach(prof => {
+    const div = document.createElement('div');
+    div.className = "prof-card flex-shrink-0 text-center w-28 cursor-pointer group";
+    
+    // LÓGICA DE FOTO OU AVATAR
+    let imgHtml = "";
+    if (prof.foto_url) {
+        imgHtml = `<img src="${prof.foto_url}" class="rounded-full w-full h-full object-cover">`;
+    } else {
+        imgHtml = `<img src="https://ui-avatars.com/api/?name=${encodeURIComponent(prof.nome)}&background=${THEME_HEX}&color=fff&bold=true" class="rounded-full w-full h-full">`;
+    }
+
+    div.innerHTML = `
+        <div class="prof-img-container w-20 h-20 mx-auto rounded-full bg-white mb-3 border-4 border-gray-100 transition-all shadow-sm flex items-center justify-center overflow-hidden">
+            ${imgHtml}
+        </div>
+        <span class="text-[10px] font-black uppercase text-gray-500">${prof.nome}</span>
+    `;
+    // ... (evento onclick mantido) ...
+});
+
+
+// Fim renderizar funcionários
+
         // --- DADOS DO BACKEND ---
         // Força Array vazio se falhar a leitura para evitar erro de .map
         const rawFeriados = getJsonData('FERIADOS_JSON');
