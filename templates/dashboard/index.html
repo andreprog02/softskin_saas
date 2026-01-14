@@ -399,27 +399,26 @@
         return cookieValue;
     }
 
-    // 3. FUNÇÃO REQUEST (CORRIGIDA E BLINDADA)
+    // 3. FUNÇÃO REQUEST (CORRIGIDA PARA STATUS 204 E TRAILING SLASH)
     async function request(url, method, body) {
-        // CORREÇÃO: Adiciona barra no final se não tiver (evita 301 Redirect que perde dados)
+        // Adiciona trailing slash se faltar
         if (!url.endsWith('/') && !url.includes('?')) {
             url += '/';
         }
 
         const headers = { 'Content-Type': 'application/json' };
         
-        // CSRF Token para métodos inseguros
+        // CSRF Token
         if (method !== 'GET') {
             headers['X-CSRFToken'] = getCookie('csrftoken'); 
         }
         
         const config = { method, headers };
 
-        // Tratamento especial para FormData (Upload de Arquivos)
+        // Tratamento de FormData vs JSON
         if (body) {
             if (body instanceof FormData) {
-                // Remove Content-Type para o browser definir boundary automaticamente
-                delete headers['Content-Type'];
+                delete headers['Content-Type']; // O browser define o boundary
                 config.body = body;
             } else {
                 config.body = JSON.stringify(body);
@@ -429,7 +428,11 @@
         try {
             const r = await fetch(url, config);
             
-            if (r.ok) return await r.json();
+            if (r.ok) {
+                // CORREÇÃO CRÍTICA: Se for 204 (Sem Conteúdo), não tenta ler JSON
+                if (r.status === 204) return null; 
+                return await r.json();
+            }
             
             const txt = await r.text();
             throw new Error(txt || "Erro desconhecido no servidor");
@@ -497,15 +500,38 @@
         }).join('');
     }
 
-    // --- LÓGICA DE EXCLUSÃO (MODAL) ---
+    // --- LÓGICA DE EXCLUSÃO BLINDADA (Previne 404 por clique duplo) ---
     function confirmarExclusao(tipo, id) {
-        document.getElementById('modal-confirm-delete').classList.remove('hidden');
-        document.getElementById('btn-confirm-delete').onclick = async function() {
-            // CORREÇÃO: Garante a barra no final
-            await request(`/api/v1/${tipo}/${id}/`, 'DELETE');
-            location.reload();
+        const modal = document.getElementById('modal-confirm-delete');
+        const btn = document.getElementById('btn-confirm-delete');
+        
+        modal.classList.remove('hidden');
+        
+        // Reseta o botão para o estado original
+        btn.disabled = false;
+        btn.innerText = "Excluir";
+        
+        btn.onclick = async function() {
+            // Bloqueia clique duplo imediato
+            btn.disabled = true;
+            btn.innerText = "Excluindo...";
+            
+            try {
+                await request(`/api/v1/${tipo}/${id}/`, 'DELETE');
+                location.reload();
+            } catch (e) {
+                // Se der erro, reabilita o botão, mas fecha o modal se for 404 (já excluiu)
+                console.error(e);
+                btn.disabled = false;
+                btn.innerText = "Excluir";
+                if(e.message.includes("Not Found")) {
+                    fecharModalDelete();
+                    location.reload(); // Atualiza a tela pois o item já sumiu
+                }
+            }
         };
     }
+    
     function fecharModalDelete() {
         document.getElementById('modal-confirm-delete').classList.add('hidden');
     }
@@ -591,21 +617,15 @@
         formData.append('escala', JSON.stringify(escala));
         formData.append('intervalos', JSON.stringify(currentProfIntervals));
 
-        // CORREÇÃO: PUT para editar, POST para criar. Com barras no final.
+        // URL com trailing slash
         const method = id ? 'PUT' : 'POST';
         const url = id ? `/api/v1/profissionais/${id}/` : '/api/v1/profissionais/';
 
         try {
-            // Usa o fetch diretamente para FormData, mas com nosso token
-            const res = await fetch(url, {
-                method: method, 
-                headers: { 'X-CSRFToken': getCookie('csrftoken') }, // NÃO setar Content-Type
-                body: formData
-            });
-            
-            if(res.ok) { location.reload(); } 
-            else { const txt = await res.text(); alert("Erro: " + txt); }
-        } catch(e) { console.error(e); alert("Erro de conexão"); }
+            // Usa o fetch diretamente para FormData, mas com nosso token via request helper
+            const res = await request(url, method, formData);
+            location.reload(); 
+        } catch(e) { console.error(e); }
     }
 
     // CRUD OUTROS
@@ -642,12 +662,15 @@
         const precoStr = document.getElementById('ms_preco').value;
         const precoFloat = precoStr ? parseFloat(precoStr.replace(/\./g, '').replace(',', '.')) : 0.00;
         
-        // CORREÇÃO: Usando 'category' em vez de 'category_id' para o DRF
+        let catVal = document.getElementById('ms_cat').value;
+        // CORREÇÃO: Envia null se a categoria for vazia (evita erro 400)
+        if (catVal === "" || catVal === "sem-categoria") catVal = null;
+
         const p={
             nome: document.getElementById('ms_nome').value, 
             preco: precoFloat, 
             duracao_minutos: document.getElementById('ms_duracao').value, 
-            category: document.getElementById('ms_cat').value 
+            category: catVal
         }; 
         
         const id=document.getElementById('ms_id').value; 

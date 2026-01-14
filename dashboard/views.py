@@ -126,8 +126,9 @@ class ProfessionalViewSet(BaseSalonViewSet):
     parser_classes = (MultiPartParser, FormParser, JSONParser)
 
     def create(self, request, *args, **kwargs):
-        # Extrai dados aninhados que vêm como strings JSON no FormData
-        data = request.data.dict()
+        # CORREÇÃO: Garante que 'data' seja um dicionário, não importa a origem
+        data = request.data.dict() if hasattr(request.data, 'dict') else request.data
+        
         servicos_raw = data.get('servicos_ids')
         escala_raw = data.get('escala')
         intervalos_raw = data.get('intervalos')
@@ -146,14 +147,15 @@ class ProfessionalViewSet(BaseSalonViewSet):
         partial = kwargs.pop('partial', False)
         instance = self.get_object()
         
-        data = request.data.dict()
+        # CORREÇÃO: Garante que 'data' seja um dicionário
+        data = request.data.dict() if hasattr(request.data, 'dict') else request.data
+        
         servicos_raw = data.get('servicos_ids')
         escala_raw = data.get('escala')
         intervalos_raw = data.get('intervalos')
         remover_foto = data.get('remover_foto')
 
-        # Lógica específica para remover foto
-        if remover_foto == 'true':
+        if str(remover_foto).lower() == 'true':
             instance.foto.delete(save=False)
             data['foto'] = None
 
@@ -170,10 +172,7 @@ class ProfessionalViewSet(BaseSalonViewSet):
         # 1. Serviços (ManyToMany)
         if servicos_raw:
             try:
-                if isinstance(servicos_raw, str):
-                    ids = json.loads(servicos_raw)
-                else:
-                    ids = servicos_raw
+                ids = json.loads(servicos_raw) if isinstance(servicos_raw, str) else servicos_raw
                 professional.services.set(ids)
             except Exception as e:
                 print(f"Erro ao processar serviços: {e}")

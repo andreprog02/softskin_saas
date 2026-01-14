@@ -36,6 +36,7 @@ class ProfessionalSerializer(serializers.ModelSerializer):
     foto = serializers.ImageField(required=False, allow_null=True)
     
     # Estes campos são tratados manualmente na View por virem como string JSON do FormData
+    # Definimos como read_only aqui para o serializer padrão não tentar validar e falhar
     services = serializers.PrimaryKeyRelatedField(many=True, read_only=True) 
     
     class Meta:
