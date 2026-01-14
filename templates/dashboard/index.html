@@ -113,7 +113,13 @@
                                 <td class="p-4">{{ a.cliente_nome }}<br><span class="text-xs text-gray-400 font-mono">{{ a.cliente_whatsapp }}</span></td>
                                 <td class="p-4"><span class="bg-theme-light text-theme px-2 py-1 rounded-md text-xs font-bold">{{ a.service.nome|default:'-' }}</span></td>
                                 <td class="p-4 flex items-center gap-2">
-                                    <div class="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500">{{ a.professional.nome|slice:":1"|default:'?' }}</div>
+                                    <div class="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 overflow-hidden">
+                                        {% if a.professional.foto %}
+                                            <img src="{{ a.professional.foto.url }}" class="w-full h-full object-cover">
+                                        {% else %}
+                                            {{ a.professional.nome|slice:":1"|default:'?' }}
+                                        {% endif %}
+                                    </div>
                                     {{ a.professional.nome|default:'-' }}
                                 </td>
                                 <td class="p-4 text-center">
@@ -144,8 +150,11 @@
         </section>
 
         <section id="tab-equipe" class="tab-content hidden animate-fade">
-             <div class="flex items-center justify-between mb-8"><div><h2 class="text-3xl font-extrabold text-slate-800">Equipe</h2></div><button onclick="abrirModalProfissional()" class="bg-theme text-white px-5 py-3 rounded-xl font-bold shadow-lg hover:opacity-90 flex items-center gap-2"><i data-lucide="user-plus" class="w-5 h-5"></i> Novo Profissional</button></div>
-             <div class="grid md:grid-cols-2 xl:grid-cols-3 gap-6" id="gridProfissionais"></div>
+             <div class="flex items-center justify-between mb-8">
+                 <div><h2 class="text-3xl font-extrabold text-slate-800">Equipe</h2></div>
+                 <button onclick="abrirModalProfissional()" class="bg-theme text-white px-5 py-3 rounded-xl font-bold shadow-lg hover:opacity-90 flex items-center gap-2"><i data-lucide="user-plus" class="w-5 h-5"></i> Novo Profissional</button>
+             </div>
+             <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6" id="gridProfissionais"></div>
         </section>
         
         <section id="tab-ausencias" class="tab-content hidden animate-fade">
@@ -444,14 +453,33 @@
         lucide.createIcons();
     }
 
+    // --- NOVA RENDERIZAÇÃO DE PROFISSIONAIS (VERTICAL) ---
     function renderProfissionais(){
         const c = document.getElementById('gridProfissionais'); 
         c.innerHTML = PROFISSIONAIS.map(p => {
             const imgHtml = p.foto_url 
-                ? `<img src="${p.foto_url}" class="rounded-full w-full h-full object-cover">`
-                : `<img src="https://ui-avatars.com/api/?name=${p.nome}&background=random" class="rounded-full w-full h-full">`;
+                ? `<img src="${p.foto_url}" class="w-full h-full object-cover">`
+                : `<img src="https://ui-avatars.com/api/?name=${p.nome}&background=random&size=128" class="w-full h-full">`;
 
-            return `<div class="card p-5"><div class="flex justify-between items-start mb-3"><div class="flex items-center gap-3"><div class="w-12 h-12 rounded-full border-2 border-theme p-0.5 overflow-hidden">${imgHtml}</div><div><h3 class="font-bold text-lg leading-none">${p.nome}</h3><p class="text-xs text-slate-500">${p.especialidade||'Geral'}</p></div></div><div class="flex gap-2"><button onclick="abrirModalProfissional(${p.id})" class="text-blue-500 hover:bg-blue-50 p-1 rounded"><i data-lucide="edit-2" class="w-4 h-4"></i></button><button onclick="confirmarExclusao('profissionais',${p.id})" class="text-red-500 hover:bg-red-50 p-1 rounded"><i data-lucide="trash" class="w-4 h-4"></i></button></div></div></div>`;
+            return `
+            <div class="card p-6 flex flex-col items-center text-center h-full hover:shadow-lg transition-all group relative">
+                
+                <div class="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onclick="abrirModalProfissional(${p.id})" class="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition"><i data-lucide="edit-2" class="w-4 h-4"></i></button>
+                    <button onclick="confirmarExclusao('profissionais',${p.id})" class="text-red-500 hover:bg-red-50 p-2 rounded-lg transition"><i data-lucide="trash" class="w-4 h-4"></i></button>
+                </div>
+
+                <div class="w-32 h-32 rounded-full border-4 border-slate-50 shadow-sm overflow-hidden mb-4 mt-2">
+                    ${imgHtml}
+                </div>
+                
+                <h3 class="font-bold text-xl text-slate-800 mb-1 leading-tight">${p.nome}</h3>
+                <p class="text-sm font-medium text-theme bg-theme-light px-3 py-1 rounded-full mb-4 inline-block">${p.especialidade||'Profissional'}</p>
+                
+                <div class="text-xs text-slate-400 mt-auto pt-4 border-t border-slate-50 w-full">
+                    ${p.servicos_ids.length} serviços habilitados
+                </div>
+            </div>`;
         }).join('');
         lucide.createIcons();
     }

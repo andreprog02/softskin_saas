@@ -76,11 +76,9 @@ def check_slot_availability(salao, prof, svc, date_obj, slot_time_obj):
 def pagina_agendamento(request, slug):
     salao = get_object_or_404(Salon, slug=slug)
     
-    # CORREÇÃO AQUI: Usando .objects.filter para evitar erro de related_name
     servicos = list(Service.objects.filter(salon=salao).values())
     categorias = list(Category.objects.filter(salon=salao).values())
     
-    # Dados para o JS
     feriados_objs = Holiday.objects.filter(salon=salao)
     feriados = [{'data': f.data.strftime('%Y-%m-%d'), 'descricao': f.descricao} for f in feriados_objs]
     
@@ -91,6 +89,14 @@ def pagina_agendamento(request, slug):
     if salao.dias_fechados:
         dias_fechados_lista = [int(x.strip()) for x in salao.dias_fechados.split(',') if x.strip().isdigit()]
 
+    # --- NOVO: Processar Endereço ---
+    endereco_dict = {}
+    if salao.endereco:
+        try:
+            endereco_dict = json.loads(salao.endereco)
+        except:
+            endereco_dict = {}
+
     context = {
         "salao": salao,
         "servicos": servicos,
@@ -98,7 +104,8 @@ def pagina_agendamento(request, slug):
         "feriados": feriados,
         "folgas": folgas,
         "dias_fechados": dias_fechados_lista,
-        "turnstile_site_key": ""
+        "turnstile_site_key": "",
+        "endereco": endereco_dict # Enviando o endereço processado
     }
     return render(request, "booking/agendar.html", context)
 
