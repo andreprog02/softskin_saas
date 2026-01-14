@@ -1,6 +1,3 @@
-import json
-
-new_content = """
 {% extends "base.html" %}
 {% load static %}
 
@@ -8,10 +5,11 @@ new_content = """
 
 {% block content %}
 
-{# --- DADOS PARA O JAVASCRIPT --- #}
-{{ servicos|json_script:"d-servicos" }}
-{{ feriados|default:"[]"|json_script:"d-feriados" }}
-{{ folgas|default:"[]"|json_script:"d-folgas" }}
+{# --- DADOS SEGUROS --- #}
+{{ servicos|json_script:"SERVICOS_JSON" }}
+{{ feriados|default:"[]"|json_script:"FERIADOS_JSON" }}
+{{ folgas|default:"[]"|json_script:"FOLGAS_JSON" }}
+{{ dias_fechados|default:"[]"|json_script:"DIAS_FECHADOS_JSON" }}
 
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -32,17 +30,15 @@ new_content = """
     
     <style>
         :root {
-            --cor-primaria: {{ salao.cor_do_tema|default:'#8E44AD' }};
+            --cor-primaria: {{ salao.cor_tema|default:'#8E44AD' }};
             --cor-primaria-clara: color-mix(in srgb, var(--cor-primaria), white 90%);
         }
         
         .bg-theme-light { background-color: var(--cor-primaria-clara); }
         .text-theme { color: var(--cor-primaria); }
         .border-theme { border-color: var(--cor-primaria); }
-        .ring-theme { --tw-ring-color: var(--cor-primaria); }
-
-        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; color: #1f2937; margin: 0; padding: 0; }
         
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; color: #1f2937; margin: 0; padding: 0; }
         .gradient-bg { background: linear-gradient(135deg, var(--cor-primaria) 0%, var(--cor-primaria) 100%); }
         
         .selected-card { 
@@ -59,9 +55,7 @@ new_content = """
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
         
         .prof-img-container.selected-prof { border-color: var(--cor-primaria) !important; transform: scale(1.1); background-color: var(--cor-primaria-clara); }
-
-        .cat-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-        .cat-btn.active { background-color: var(--cor-primaria); color: white; border-color: var(--cor-primaria); box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); }
+        .cat-btn.active { background-color: var(--cor-primaria); color: white; border-color: var(--cor-primaria); }
         
         .calendar-day.disabled {
             opacity: 0.15 !important;
@@ -72,13 +66,7 @@ new_content = """
         }
         .day-selected { background-color: var(--cor-primaria) !important; color: white !important; border-color: var(--cor-primaria) !important; }
 
-        @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: .5; } }
-        .loading-text { animation: pulse-soft 1.5s infinite; }
-        
-        @keyframes modalPop {
-            0% { transform: scale(0.9); opacity: 0; }
-            100% { transform: scale(1); opacity: 1; }
-        }
+        @keyframes modalPop { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
         .animate-pop { animation: modalPop 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
     </style>
 </head>
@@ -86,48 +74,29 @@ new_content = """
 
     <div style="position: fixed; top: 0; left: 0; z-index: 0; pointer-events: none;">
         <div id="voucher-template" style="width: 380px; background: white; border-radius: 0 0 24px 0; overflow: hidden; font-family: 'Inter', sans-serif;">
-            
             <div class="gradient-bg p-8 text-center text-white relative">
-                <div style="position: absolute; bottom: -8px; left: -8px; width: 16px; height: 16px; background: white; border-radius: 50%;"></div>
-                <div style="position: absolute; bottom: -8px; right: -8px; width: 16px; height: 16px; background: white; border-radius: 50%;"></div>
-                
                 <h2 class="text-xl font-extrabold uppercase tracking-wider mb-1">{{ salao.nome }}</h2>
                 <p class="text-[10px] uppercase tracking-[0.2em] opacity-80">Comprovante Digital</p>
             </div>
-
             <div class="p-8 bg-white text-gray-800">
                 <div class="text-center space-y-1 mb-6">
                     <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Cliente</p>
                     <p class="text-2xl font-black text-gray-900 leading-none" id="v-nome">Cliente</p>
                     <p class="text-xs text-gray-500 font-mono" id="v-tel">---</p>
                 </div>
-                
                 <div class="border-t-2 border-dashed border-gray-100 my-6"></div>
-                
                 <div class="grid grid-cols-2 gap-4 text-center">
-                    <div>
-                        <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Data</p>
-                        <p class="text-lg font-black text-theme" id="v-data">--/--</p>
-                    </div>
-                    <div>
-                        <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Horário</p>
-                        <p class="text-lg font-black text-theme" id="v-hora">--:--</p>
-                    </div>
+                    <div><p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Data</p><p class="text-lg font-black text-theme" id="v-data">--/--</p></div>
+                    <div><p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Horário</p><p class="text-lg font-black text-theme" id="v-hora">--:--</p></div>
                 </div>
-
                 <div class="text-center mt-6">
                     <p class="text-[10px] text-gray-400 uppercase font-bold tracking-wider">Serviço</p>
                     <p class="text-sm font-bold text-gray-800" id="v-servico">Serviço</p>
                 </div>
-                
                 <div class="mt-8 flex flex-col items-center">
-                    <div class="p-2 border border-gray-100 rounded-xl shadow-sm bg-white">
-                        <div id="v-qrcode"></div>
-                    </div>
-                    <p class="text-[9px] text-gray-300 uppercase font-bold mt-2 tracking-wide">Código de Verificação</p>
+                    <div class="p-2 border border-gray-100 rounded-xl shadow-sm bg-white"><div id="v-qrcode"></div></div>
                 </div>
             </div>
-            
             <div class="h-2 gradient-bg"></div>
         </div>
     </div>
@@ -151,15 +120,9 @@ new_content = """
                         {% if categorias %}
                         <div class="mb-6 overflow-x-auto no-scrollbar py-2 -mx-2 px-2">
                             <div class="flex gap-2">
-                                <button data-click="filtrarCategoria" data-id="todas" 
-                                        class="cat-btn active border border-gray-200 px-5 py-2.5 rounded-full text-sm font-bold text-gray-500 whitespace-nowrap hover:bg-gray-50">
-                                    Todos
-                                </button>
+                                <button data-click="filtrarCategoria" data-id="todas" class="cat-btn active border border-gray-200 px-5 py-2.5 rounded-full text-sm font-bold text-gray-500 whitespace-nowrap hover:bg-gray-50">Todos</button>
                                 {% for cat in categorias %}
-                                <button data-click="filtrarCategoria" data-id="{{ cat.id }}" 
-                                        class="cat-btn border border-gray-200 px-5 py-2.5 rounded-full text-sm font-bold text-gray-500 whitespace-nowrap hover:bg-gray-50">
-                                    {{ cat.nome }}
-                                </button>
+                                <button data-click="filtrarCategoria" data-id="{{ cat.id }}" class="cat-btn border border-gray-200 px-5 py-2.5 rounded-full text-sm font-bold text-gray-500 whitespace-nowrap hover:bg-gray-50">{{ cat.nome }}</button>
                                 {% endfor %}
                             </div>
                         </div>
@@ -167,19 +130,13 @@ new_content = """
 
                         <div class="grid grid-cols-1 gap-4" id="grid-servicos">
                             {% for servico in servicos %}
-                            <label class="service-card relative flex items-center p-5 border-2 rounded-2xl cursor-pointer hover:border-gray-300 transition-all border-gray-100 shadow-sm animate-pop"
-                                   data-cat="{{ servico.category_id|default:'sem-categoria' }}">
-                                
+                            <label class="service-card relative flex items-center p-5 border-2 rounded-2xl cursor-pointer hover:border-gray-300 transition-all border-gray-100 shadow-sm animate-pop" data-cat="{{ servico.category_id|default:'sem-categoria' }}">
                                 <input type="radio" name="service" value="{{ servico.id }}" class="hidden" data-change="selecionarServico">
-                                
                                 <div class="flex-1">
                                     <span class="block font-bold text-lg text-gray-800">{{ servico.nome }}</span>
                                     <span class="text-xs text-gray-400 font-bold uppercase">{{ servico.duracao_minutos }} min</span>
                                 </div>
-                                
-                                {% if not salao.ocultar_precos %}
-                                <span class="font-black text-theme text-xl">R$ {{ servico.preco|floatformat:2 }}</span>
-                                {% endif %}
+                                {% if not salao.ocultar_precos %}<span class="font-black text-theme text-xl">R$ {{ servico.preco|floatformat:2 }}</span>{% endif %}
                             </label>
                             {% endfor %}
                         </div>
@@ -217,9 +174,7 @@ new_content = """
                         <div class="bg-gray-50 p-8 rounded-[2.5rem] border-2 border-dashed border-gray-200">
                             <div class="space-y-4">
                                 <input type="text" id="cliente-nome" placeholder="Seu nome completo" class="w-full p-5 rounded-2xl border-none font-bold shadow-sm outline-none focus:ring-2 focus:ring-purple-500 focus:ring-theme">
-                                
                                 <input type="tel" id="cliente-whatsapp" maxlength="16" placeholder="(00) 0 0000-0000" class="w-full p-5 rounded-2xl border-none font-bold shadow-sm outline-none focus:ring-2 focus:ring-purple-500 focus:ring-theme">
-                                
                                 <div id="turnstile-widget" class="hidden"></div>
                                 <button data-click="finalizarReserva" id="btn-confirmar" class="w-full gradient-bg text-white font-black py-5 rounded-2xl shadow-xl transition-all mt-4 tracking-widest uppercase hover:opacity-90">Confirmar Agendamento</button>
                             </div>
@@ -233,7 +188,6 @@ new_content = """
     <div id="modal-sucesso" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4">
         <div class="absolute inset-0 bg-black/80 backdrop-blur-md transition-opacity"></div>
         <div class="relative bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-sm transform animate-pop flex flex-col items-center z-50">
-            
             <div class="w-full p-6 text-center bg-gray-50 border-b border-gray-100">
                 <div class="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-3">
                     <svg class="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path></svg>
@@ -241,27 +195,17 @@ new_content = """
                 <h3 class="text-xl font-black text-gray-800">Agendamento Confirmado!</h3>
                 <p class="text-xs text-gray-500 mt-1">Seu horário foi reservado.</p>
             </div>
-
             <div id="loading-ticket" class="p-10 flex flex-col items-center">
                 <div class="w-8 h-8 border-4 border-theme border-t-transparent rounded-full animate-spin"></div>
                 <p class="text-xs text-gray-400 mt-3 font-bold uppercase tracking-widest">Gerando Ticket...</p>
             </div>
-
             <div id="area-ticket-pronto" class="hidden p-6 w-full flex justify-center bg-gray-100 border-b border-gray-100">
                 <img id="img-ticket-gerado" class="rounded-xl shadow-lg w-[280px] h-auto border border-gray-200 block mx-auto" alt="Ticket">
             </div>
-            
-            <div id="erro-ticket" class="hidden p-6 text-center text-gray-400 text-xs italic">
-                Não foi possível gerar a imagem do ticket.<br>Mas seu agendamento está confirmado!
-            </div>
-
+            <div id="erro-ticket" class="hidden p-6 text-center text-gray-400 text-xs italic">Não foi possível gerar a imagem do ticket.<br>Mas seu agendamento está confirmado!</div>
             <div class="p-6 w-full space-y-3 bg-white">
-                <a id="btn-download-ticket" href="#" class="block w-full text-center gradient-bg text-white font-bold py-3.5 rounded-xl shadow-lg hover:opacity-90 transition-transform active:scale-95 flex items-center justify-center gap-2 cursor-pointer decoration-0">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                    Baixar Comprovante
-                </a>
+                <a id="btn-download-ticket" href="#" class="block w-full text-center gradient-bg text-white font-bold py-3.5 rounded-xl shadow-lg hover:opacity-90 transition-transform active:scale-95 flex items-center justify-center gap-2 cursor-pointer decoration-0">Baixar Comprovante</a>
                 <button data-click="reloadPage" class="block w-full text-center text-gray-500 font-bold py-3 rounded-xl hover:bg-gray-50 transition">Novo Agendamento</button>
-                <button data-click="fecharModalSucesso" class="block w-full text-center text-theme font-bold py-3 rounded-xl border border-gray-100 hover:bg-theme-light transition">Fechar</button>
             </div>
         </div>
     </div>
@@ -271,9 +215,6 @@ new_content = """
         <div class="relative bg-white rounded-3xl overflow-hidden shadow-2xl w-full max-w-sm transform animate-pop z-50">
             <div class="h-3 bg-red-500 w-full"></div>
             <div class="p-8 text-center flex flex-col items-center gap-4">
-                <div class="w-20 h-20 rounded-full bg-red-50 flex items-center justify-center mb-2 animate-bounce">
-                    <svg class="w-10 h-10 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M6 18L18 6M6 6l12 12"></path></svg>
-                </div>
                 <h3 class="text-2xl font-black text-gray-800">Ops!</h3>
                 <p id="msg-erro-texto" class="text-gray-500 font-medium leading-relaxed">Algo deu errado.</p>
                 <button data-click="fecharModalErro" class="w-full bg-red-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-red-200 mt-4 hover:bg-red-600 transition-colors active:scale-95">Tentar Novamente</button>
@@ -282,15 +223,35 @@ new_content = """
     </div>
 
     <script>
-        const SERVICOS = JSON.parse(document.getElementById('d-servicos').textContent);
-        const FERIADOS = JSON.parse(document.getElementById('d-feriados').textContent);
-        const FOLGAS = JSON.parse(document.getElementById('d-folgas').textContent);
+        // LEITURA SEGURA DE DADOS
+        function getJsonData(id) {
+            try {
+                const el = document.getElementById(id);
+                const data = el ? JSON.parse(el.textContent) : [];
+                return data;
+            } catch (e) {
+                console.warn("Erro ao ler JSON:", id, e);
+                return [];
+            }
+        }
+
+        // --- DADOS DO BACKEND ---
+        // Força Array vazio se falhar a leitura para evitar erro de .map
+        const rawFeriados = getJsonData('FERIADOS_JSON');
+        const FERIADOS = Array.isArray(rawFeriados) ? rawFeriados : [];
+        
+        const rawFolgas = getJsonData('FOLGAS_JSON');
+        const FOLGAS = Array.isArray(rawFolgas) ? rawFolgas : [];
+        
+        const rawDias = getJsonData('DIAS_FECHADOS_JSON');
+        const DIAS_FECHADOS = Array.isArray(rawDias) ? rawDias : [];
+        
+        const SERVICOS = getJsonData('SERVICOS_JSON');
         
         const SLUG = "{{ salao.slug }}";
         const BASE_URL = "/agendar/saloes/" + SLUG;
         const THEME_HEX = (getComputedStyle(document.documentElement).getPropertyValue('--cor-primaria').trim().replace('#','') || '8E44AD');
 
-        // FUNÇÃO CSRF
         function getCookie(name) {
             let cookieValue = null;
             if (document.cookie && document.cookie !== '') {
@@ -327,7 +288,6 @@ new_content = """
         let selectedDate = null;
         let selectedTime = null;
 
-        // --- FILTRO DE CATEGORIAS ---
         function filtrarCategoria(btnOrId) {
             const btn = (btnOrId instanceof HTMLElement) ? btnOrId : document.querySelector(`.cat-btn[data-id="${btnOrId}"]`);
             if(!btn) return;
@@ -348,8 +308,7 @@ new_content = """
                     card.style.display = 'none';
                 }
             });
-            const msg = document.getElementById('msg-sem-servico');
-            msg.style.display = (visibleCount === 0) ? 'block' : 'none';
+            document.getElementById('msg-sem-servico').style.display = (visibleCount === 0) ? 'block' : 'none';
         }
 
         function mostrarErro(mensagem) {
@@ -361,10 +320,6 @@ new_content = """
             if (selectedDate) buscarHorarios(selectedDate);
         }
         function reloadPage() { location.reload(); }
-        
-        function fecharModalSucesso() { 
-            location.reload(); 
-        }
 
         let turnstileWidgetId = null;
         let pendingSubmit = false;
@@ -376,10 +331,7 @@ new_content = """
                 turnstileWidgetId = turnstile.render('#turnstile-widget', {
                     sitekey: siteKey,
                     size: 'invisible',
-                    callback: (token) => {
-                        pendingSubmit = false;
-                        submitAgendamento(token);
-                    },
+                    callback: (token) => { pendingSubmit = false; submitAgendamento(token); },
                     'error-callback': () => {
                         pendingSubmit = false;
                         document.getElementById('btn-confirmar').disabled = false;
@@ -389,105 +341,100 @@ new_content = """
             } catch (e) {}
         }
 
+        // --- PREPARAÇÃO SEGURA DOS BLOQUEIOS ---
+        // Garante que o código não quebre se FERIADOS vier vazio
         let bloqueios = {
-            feriados: (FERIADOS || []).map(f => f.data),
-            dias_recorrentes: ("{{ salao.dias_fechados }}".split(',').filter(x => x).map(Number))
+            feriados: FERIADOS.map(f => f.data || f), 
+            dias_recorrentes: DIAS_FECHADOS
         };
 
-        // --- MÁSCARA DE TELEFONE (FORMATO (XX) X XXXX-XXXX) ---
         const phoneInput = document.getElementById('cliente-whatsapp');
         if(phoneInput) {
             phoneInput.addEventListener('input', function (e) {
-                let value = e.target.value.replace(/\D/g, '');
-                // Limita a 11 dígitos
-                if (value.length > 11) value = value.slice(0, 11);
+                let v = e.target.value.replace(/\D/g, "");
+                if (v.length > 11) v = v.substring(0, 11);
                 
-                // Aplica a máscara
-                if (value.length > 10) value = value.replace(/^(\d{2})(\d{1})(\d{4})(\d{4}).*/, '($1) $2 $3-$4');
-                else if (value.length > 6) value = value.replace(/^(\d{2})(\d{4})(\d{0,4}).*/, '($1) $2-$3');
-                else if (value.length > 2) value = value.replace(/^(\d{2})(\d{0,5}).*/, '($1) $2');
-                else if (value.length > 0) value = value.replace(/^(\d{0,2})/, '($1');
-                
-                e.target.value = value;
+                let formatted = v;
+                if (v.length > 10) { 
+                    formatted = `(${v.substring(0,2)}) ${v.substring(2,3)} ${v.substring(3,7)}-${v.substring(7)}`;
+                } else if (v.length > 6) {
+                    formatted = `(${v.substring(0,2)}) ${v.substring(2,6)}-${v.substring(6)}`;
+                } else if (v.length > 2) {
+                    formatted = `(${v.substring(0,2)}) ${v.substring(2)}`;
+                } else if (v.length > 0) {
+                    formatted = `(${v}`;
+                }
+                e.target.value = formatted;
             });
         }
 
         async function selecionarServico(input) {
             selectedService = input.value;
-            const spanNome = input.closest('.service-card').querySelector('span.block');
-            selectedServiceName = spanNome ? spanNome.innerText : "Serviço";
-
+            selectedServiceName = input.closest('.service-card').querySelector('span.block').innerText;
             document.querySelectorAll('.service-card').forEach(card => card.classList.remove('selected-card'));
             input.parentElement.classList.add('selected-card');
 
             document.getElementById('section-profissionais').classList.remove('opacity-40', 'pointer-events-none');
-            const containerProf = document.getElementById('lista-profissionais');
-            containerProf.innerHTML = '<p class="text-theme font-bold loading-text ml-2 text-sm">🔍 Buscando especialistas...</p>';
+            const container = document.getElementById('lista-profissionais');
+            container.innerHTML = '<p class="text-theme font-bold loading-text ml-2 text-sm">🔍 Buscando especialistas...</p>';
 
             try {
-                // Atualizado para usar BASE_URL
-                const resP = await fetch(`${BASE_URL}/profissionais-por-servico/${selectedService}`);
-                const profissionais = await resP.json();
-                renderizarProfissionais(profissionais);
+                const res = await fetch(`${BASE_URL}/profissionais-por-servico/${selectedService}`);
+                const profs = await res.json();
+                
+                container.innerHTML = '';
+                if(profs.length === 0) {
+                    container.innerHTML = '<p class="text-orange-500 font-bold text-sm ml-2">Nenhum profissional habilitado.</p>';
+                    return;
+                }
+                
+                profs.forEach(p => {
+                    const div = document.createElement('div');
+                    div.className = "prof-card flex-shrink-0 text-center w-28 cursor-pointer group";
+                    div.innerHTML = `
+                        <div class="prof-img-container w-20 h-20 mx-auto rounded-full bg-white mb-3 border-4 border-gray-100 transition-all shadow-sm flex items-center justify-center">
+                            <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(p.nome)}&background=${THEME_HEX}&color=fff&bold=true" class="rounded-full w-full h-full">
+                        </div>
+                        <span class="text-[10px] font-black uppercase text-gray-500">${p.nome}</span>
+                    `;
+                    div.onclick = () => {
+                        selectedProfessional = p.id;
+                        document.querySelectorAll('.prof-img-container').forEach(c => c.classList.remove('selected-prof', 'border-theme'));
+                        div.querySelector('.prof-img-container').classList.add('selected-prof', 'border-theme');
+                        document.getElementById('section-calendario').classList.remove('hidden');
+                        renderizarCalendario();
+                        document.getElementById('section-calendario').scrollIntoView({behavior:'smooth'});
+                    };
+                    container.appendChild(div);
+                });
                 document.getElementById('section-profissionais').scrollIntoView({behavior:'smooth', block: 'center'});
             } catch(e) {
-                containerProf.innerHTML = '<p class="text-red-500 text-sm">Erro ao carregar profissionais.</p>';
+                container.innerHTML = '<p class="text-red-500 text-sm">Erro ao carregar profissionais.</p>';
             }
         }
 
-        function renderizarProfissionais(lista) {
-            const container = document.getElementById('lista-profissionais');
-            container.innerHTML = '';
-            if(lista.length === 0) {
-                container.innerHTML = '<p class="text-orange-500 font-bold text-sm ml-2">Nenhum profissional habilitado para este serviço.</p>';
-                return;
-            }
-            lista.forEach(prof => {
-                const div = document.createElement('div');
-                div.className = "prof-card flex-shrink-0 text-center w-28 cursor-pointer group";
-                div.onclick = () => {
-                    selectedProfessional = prof.id;
-                    document.querySelectorAll('.prof-img-container').forEach(c => c.classList.remove('selected-prof', 'border-theme'));
-                    div.querySelector('.prof-img-container').classList.add('selected-prof', 'border-theme');
-                    document.getElementById('section-calendario').classList.remove('hidden');
-                    renderizarCalendario();
-                    document.getElementById('section-calendario').scrollIntoView({behavior:'smooth'});
-                };
-                div.innerHTML = `
-                    <div class="prof-img-container w-20 h-20 mx-auto rounded-full bg-white mb-3 border-4 border-gray-100 transition-all shadow-sm flex items-center justify-center">
-                        <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(prof.nome)}&background=${THEME_HEX}&color=fff&bold=true" class="rounded-full w-full h-full">
-                    </div>
-                    <span class="text-[10px] font-black uppercase text-gray-500">${prof.nome}</span>
-                `;
-                container.appendChild(div);
-            });
-        }
-
-        // --- CALENDÁRIO VISUAL ---
         function renderizarCalendario() {
             try {
                 const grid = document.getElementById('calendar-grid');
                 grid.innerHTML = '';
                 
-                // 1. Cabeçalho dos dias
                 const diasS = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
                 diasS.forEach(d => {
-                    const header = document.createElement('div');
-                    header.className = "font-black text-gray-300 text-[10px] pb-2";
-                    header.innerText = d;
-                    grid.appendChild(header);
+                    const el = document.createElement('div');
+                    el.className = "font-black text-gray-300 text-[10px] pb-2";
+                    el.innerText = d;
+                    grid.appendChild(el);
                 });
 
-                // 2. Configuração de Data
                 const hoje = new Date();
                 hoje.setHours(0,0,0,0);
                 
                 const meses = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
                 const mesesCurto = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
                 
-                // Atualiza Header do Mês
                 const dataFinal = new Date(hoje);
                 dataFinal.setDate(hoje.getDate() + 30);
+                
                 const mesInicial = meses[hoje.getMonth()];
                 const mesFinal = meses[dataFinal.getMonth()];
                 
@@ -497,28 +444,22 @@ new_content = """
                 }
                 document.getElementById('label-mes-ano').innerText = textoHeader;
 
-                // 3. Espaços vazios iniciais
                 const primeiroDiaExibido = new Date(hoje);
-                const deslocamento = primeiroDiaExibido.getDay(); // 0 = Domingo
+                const deslocamento = primeiroDiaExibido.getDay(); // 0 = Dom
                 for (let j = 0; j < deslocamento; j++) { 
-                    const spacer = document.createElement('div');
-                    grid.appendChild(spacer); 
+                    grid.appendChild(document.createElement('div')); 
                 }
 
-                // 4. Dias do Calendário
                 for (let i = 0; i < 30; i++) {
-                    const data = new Date(hoje.getTime()); // Clone seguro
+                    const data = new Date(hoje.getTime());
                     data.setDate(hoje.getDate() + i);
                     
                     const iso = data.getFullYear() + '-' + String(data.getMonth() + 1).padStart(2, '0') + '-' + String(data.getDate()).padStart(2, '0');
-                    const jsDay = data.getDay(); // 0=Domingo
-                    
-                    // Mapeamento para Python (0=Segunda) se necessário, mas aqui usaremos jsDay direto se o backend usar 0=Dom.
-                    // O backend Django geralmente usa 0=Segunda para weekday().
-                    // Vamos converter JS(0=Dom) -> Python(6=Dom). JS(1=Seg) -> Python(0=Seg).
-                    const mapeamento = { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 0: 6 };
-                    const pythonDay = mapeamento[jsDay];
+                    const jsDay = data.getDay(); // 0=Dom
+                    const mapDia = { 0: 6, 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5 };
+                    const pythonDay = mapDia[jsDay];
 
+                    // Uso seguro da variável global bloqueios
                     const ehFeriado = bloqueios.feriados.includes(iso);
                     const ehDiaFechado = bloqueios.dias_recorrentes.includes(pythonDay);
                     const estaBloqueado = ehFeriado || ehDiaFechado;
@@ -547,8 +488,8 @@ new_content = """
                     grid.appendChild(btn);
                 }
             } catch(e) {
-                console.error("Erro ao renderizar calendário:", e);
-                document.getElementById('calendar-grid').innerHTML = '<p class="col-span-7 text-center text-red-400 text-xs">Erro ao carregar datas.</p>';
+                console.error("Erro renderizarCalendario:", e);
+                document.getElementById('calendar-grid').innerHTML = '<p class="col-span-7 text-center text-red-400 text-xs">Erro ao desenhar calendário.</p>';
             }
         }
 
@@ -556,39 +497,48 @@ new_content = """
             const container = document.getElementById('lista-horarios');
             document.getElementById('section-horarios').classList.remove('hidden');
             container.innerHTML = '<p class="col-span-full text-center text-theme font-bold p-4">Consultando horários...</p>';
-            // Atualizado para usar BASE_URL
-            const res = await fetch(`${BASE_URL}/disponibilidade/${iso}?service_id=${selectedService}`);
-            const data = await res.json();
-            const profData = data.find(p => p.professional_id === selectedProfessional);
-            container.innerHTML = '';
-            if (!profData || profData.horarios.length === 0) {
-                container.innerHTML = '<p class="col-span-full text-center text-gray-400 font-bold p-4 bg-gray-50 rounded-2xl italic">Nenhum horário disponível para esta data.</p>';
-                return;
+            
+            try {
+                const res = await fetch(`${BASE_URL}/disponibilidade/${iso}?service_id=${selectedService}&professional_id=${selectedProfessional}`);
+                const data = await res.json();
+                
+                const profData = data.find(p => p.professional_id == selectedProfessional);
+                
+                container.innerHTML = '';
+                if (!profData || !profData.horarios || profData.horarios.length === 0) {
+                    container.innerHTML = '<p class="col-span-full text-center text-gray-400 font-bold p-4 bg-gray-50 rounded-2xl italic">Nenhum horário disponível.</p>';
+                    return;
+                }
+                
+                profData.horarios.forEach(h => {
+                    const btn = document.createElement('button');
+                    btn.className = "slot-btn bg-white rounded-2xl py-4 text-sm font-black text-gray-700 shadow-sm";
+                    btn.innerText = h;
+                    btn.onclick = () => {
+                        selectedTime = h;
+                        document.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('slot-selected'));
+                        btn.classList.add('slot-selected');
+                        document.getElementById('section-finalizar').classList.remove('hidden');
+                        document.getElementById('section-finalizar').scrollIntoView({behavior:'smooth'});
+                    };
+                    container.appendChild(btn);
+                });
+                document.getElementById('section-horarios').scrollIntoView({behavior:'smooth'});
+            } catch(e) {
+                container.innerHTML = '<p class="col-span-full text-center text-red-400">Erro na consulta.</p>';
             }
-            profData.horarios.forEach(h => {
-                const btn = document.createElement('button');
-                btn.className = "slot-btn bg-white rounded-2xl py-4 text-sm font-black text-gray-700 shadow-sm";
-                btn.innerText = h;
-                btn.onclick = () => {
-                    selectedTime = h;
-                    document.querySelectorAll('.slot-btn').forEach(b => b.classList.remove('slot-selected'));
-                    btn.classList.add('slot-selected');
-                    document.getElementById('section-finalizar').classList.remove('hidden');
-                    document.getElementById('section-finalizar').scrollIntoView({behavior:'smooth'});
-                };
-                container.appendChild(btn);
-            });
-            document.getElementById('section-horarios').scrollIntoView({behavior:'smooth'});
         }
 
         async function finalizarReserva() {
             const nome = document.getElementById('cliente-nome').value;
             const fone = document.getElementById('cliente-whatsapp').value;
-            if (!nome || fone.length < 5) return mostrarErro("Preencha seu nome e um telefone válido.");
+            
+            if (!nome || fone.length < 14) return mostrarErro("Preencha seu nome e um telefone completo.");
 
             const btn = document.getElementById('btn-confirmar');
             btn.disabled = true;
             btn.innerText = "Processando...";
+            
             const siteKey = "{{ turnstile_site_key|default:'' }}";
             if (siteKey && typeof turnstile !== 'undefined' && turnstileWidgetId !== null) {
                 try {
@@ -606,11 +556,8 @@ new_content = """
             const fone = document.getElementById('cliente-whatsapp').value;
             const btn = document.getElementById('btn-confirmar');
             const originalText = "Confirmar Agendamento";
-            btn.disabled = true;
-            btn.innerText = "Processando...";
 
             try {
-                // Atualizado para usar BASE_URL e header CSRF
                 const res = await fetch(`${BASE_URL}/agendar`, {
                     method: 'POST',
                     headers: {
@@ -618,38 +565,30 @@ new_content = """
                         'X-CSRFToken': getCookie('csrftoken')
                     },
                     body: JSON.stringify({
+                        servico_id: selectedService,
+                        profissional_id: selectedProfessional,
                         data: selectedDate,
-                        hora_inicio: selectedTime,
-                        cliente_nome: nome,
-                        cliente_whatsapp: fone,
-                        professional_id: selectedProfessional,
-                        service_id: selectedService,
+                        horario: selectedTime,
+                        nome_cliente: nome,
+                        whatsapp: fone,
                         turnstile_token: turnstileToken
                     })
                 });
 
                 if (res.ok) {
-                    // SUCESSO! Abre modal
                     document.getElementById('modal-sucesso').classList.remove('hidden');
-                    
-                    // Inicia geração
                     try {
                         gerarVoucher(nome, fone, selectedDate, selectedTime, selectedServiceName);
                     } catch(err) {
-                        console.error("Erro voucher:", err);
                         document.getElementById('loading-ticket').classList.add('hidden');
                         document.getElementById('erro-ticket').classList.remove('hidden');
                     }
                 } else {
-                    let msg = "Ocorreu um erro ao agendar.";
-                    try {
-                        const j = await res.json();
-                        if (j && (j.detail || j.message)) msg = j.detail || j.message;
-                    } catch(e) {}
+                    let msg = "Erro ao agendar.";
+                    try { const j = await res.json(); if(j.message) msg = j.message; } catch(e){}
                     mostrarErro(msg);
                     btn.disabled = false;
                     btn.innerText = originalText;
-                    try { if (typeof turnstile !== 'undefined' && turnstileWidgetId !== null) turnstile.reset(turnstileWidgetId); } catch(e) {}
                 }
             } catch (e) {
                 mostrarErro("Erro de conexão.");
@@ -660,13 +599,12 @@ new_content = """
 
         function gerarVoucher(nome, tel, data, hora, servico) {
             const safeNome = nome || "Cliente";
-            const safeTel = tel || "---"; 
             const safeData = data ? data.split('-').reverse().join('/') : "--/--";
             const safeHora = hora || "--:--";
             const safeServico = servico || "Serviço";
 
             document.getElementById('v-nome').innerText = safeNome;
-            document.getElementById('v-tel').innerText = safeTel;
+            document.getElementById('v-tel').innerText = tel;
             document.getElementById('v-data').innerText = safeData;
             document.getElementById('v-hora').innerText = safeHora;
             document.getElementById('v-servico').innerText = safeServico;
@@ -674,42 +612,24 @@ new_content = """
             const qrContainer = document.getElementById('v-qrcode');
             qrContainer.innerHTML = ""; 
             
-            let qrText = `${safeNome} | ${safeData} ${safeHora} | ${safeServico}`;
-            if(qrText.length > 80) qrText = qrText.substring(0, 80) + "..."; 
-
             new QRCode(qrContainer, {
-                text: qrText,
-                width: 128,
-                height: 128,
-                colorDark : "{{ salao.cor_do_tema|default:'#334155' }}",
+                text: `${safeNome}|${safeData}|${safeHora}|${safeServico}`,
+                width: 128, height: 128,
+                colorDark : "{{ salao.cor_tema|default:'#334155' }}",
                 colorLight : "#ffffff",
                 correctLevel : QRCode.CorrectLevel.L
             });
 
             setTimeout(() => {
                 const elemento = document.getElementById('voucher-template');
-                html2canvas(elemento, {
-                    scale: 2,
-                    useCORS: true,
-                    backgroundColor: "#ffffff",
-                    logging: false,
-                    scrollX: 0,
-                    scrollY: 0
-                }).then(canvas => {
+                html2canvas(elemento, { scale: 2, backgroundColor: "#ffffff" }).then(canvas => {
                     const imgData = canvas.toDataURL("image/png");
-                    const imgElement = document.getElementById('img-ticket-gerado');
-                    imgElement.src = imgData;
-                    
+                    document.getElementById('img-ticket-gerado').src = imgData;
                     document.getElementById('loading-ticket').classList.add('hidden');
                     document.getElementById('area-ticket-pronto').classList.remove('hidden');
-                    
                     const btnDown = document.getElementById('btn-download-ticket');
                     btnDown.href = imgData;
-                    btnDown.download = `Voucher-${safeNome.split(' ')[0]}-${safeData.replace(/\//g,'-')}.png`;
-                }).catch(err => {
-                    console.error("Erro html2canvas:", err);
-                    document.getElementById('loading-ticket').classList.add('hidden');
-                    document.getElementById('erro-ticket').classList.remove('hidden');
+                    btnDown.download = `Voucher.png`;
                 });
             }, 800);
         }
@@ -717,7 +637,3 @@ new_content = """
 </body>
 </html>
 {% endblock %}
-"""
-with open('andreprog02/softskin_saas/softskin_saas-7418fd8e592bdea783453cd732ce848ac4854926/templates/booking/agendar.html', 'w') as f:
-    f.write(new_content)
-print("File updated successfully.")
