@@ -1,10 +1,11 @@
 import json
+import random # Added missing import
+import string # Added missing import
 from datetime import datetime, timedelta, time
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from core.models import Salon
-# Certifique-se de importar Category também
 from scheduling.models import Service, Professional, Appointment, Holiday, SpecialSchedule, WorkingHour, ProfessionalBreak, Category
 
 # --- FUNÇÃO AUXILIAR DE DISPONIBILIDADE ---
@@ -89,7 +90,7 @@ def pagina_agendamento(request, slug):
     if salao.dias_fechados:
         dias_fechados_lista = [int(x.strip()) for x in salao.dias_fechados.split(',') if x.strip().isdigit()]
 
-    # --- NOVO: Processar Endereço ---
+    # --- Processar Endereço ---
     endereco_dict = {}
     if salao.endereco:
         try:
@@ -105,7 +106,7 @@ def pagina_agendamento(request, slug):
         "folgas": folgas,
         "dias_fechados": dias_fechados_lista,
         "turnstile_site_key": "",
-        "endereco": endereco_dict # Enviando o endereço processado
+        "endereco": endereco_dict 
     }
     return render(request, "booking/agendar.html", context)
 
@@ -113,7 +114,6 @@ def api_profissionais_por_servico(request, slug, service_id):
     salao = get_object_or_404(Salon, slug=slug)
     profs = Professional.objects.filter(salon=salao, services__id=service_id)
     
-    # ATUALIZADO: Inclui foto_url
     data = []
     for p in profs:
         data.append({
@@ -194,6 +194,9 @@ def api_confirmar_agendamento(request, slug):
     if not check_slot_availability(salao, prof, svc, date_obj, time_obj):
         return JsonResponse({"message": "Horário não está mais disponível."}, status=409)
 
+    # 1. GERAR CÓDIGO AQUI
+    codigo = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+
     Appointment.objects.create(
         salon=salao,
         professional=prof,
@@ -201,7 +204,9 @@ def api_confirmar_agendamento(request, slug):
         cliente_nome=data['nome_cliente'],
         cliente_whatsapp=data['whatsapp'],
         data=date_obj,
-        hora_inicio=time_obj
+        hora_inicio=time_obj,
+        codigo_validacao=codigo # 2. SALVAR NO BANCO
     )
     
-    return JsonResponse({"ok": True})
+    # 3. RETORNAR PARA O FRONTEND
+    return JsonResponse({"ok": True, "codigo": codigo})

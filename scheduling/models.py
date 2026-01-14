@@ -59,6 +59,8 @@ class Appointment(models.Model):
     
     cliente_nome = models.CharField(max_length=255)
     cliente_whatsapp = models.CharField(max_length=20)
+
+    codigo_validacao = models.CharField(max_length=10, blank=True, null=True)
     
     data = models.DateField()
     hora_inicio = models.TimeField()

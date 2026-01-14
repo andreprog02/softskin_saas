@@ -103,12 +103,18 @@
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                <th class="p-4">Data/Hora</th><th class="p-4">Cliente</th><th class="p-4">Serviço</th><th class="p-4">Profissional</th><th class="p-4 text-center">Ações</th>
+                                <th class="p-4">Cód.</th>
+                                <th class="p-4">Data/Hora</th>
+                                <th class="p-4">Cliente</th>
+                                <th class="p-4">Serviço</th>
+                                <th class="p-4">Profissional</th>
+                                <th class="p-4 text-center">Ações</th>
                             </tr>
                         </thead>
                         <tbody class="text-sm text-slate-700 divide-y divide-slate-50" id="tabelaAgendamentos">
                             {% for a in agendamentos %}
                             <tr class="hover:bg-slate-50 transition-colors group linha-agendamento" data-date="{{ a.data|date:'Y-m-d' }}" data-prof="{{ a.professional_id }}">
+                                <td class="p-4 font-mono font-bold text-theme">{{ a.codigo_validacao|default:'-' }}</td>
                                 <td class="p-4 font-bold">{{ a.data|date:"d/m/Y" }} às {{ a.hora_inicio|time:"H:i" }}</td>
                                 <td class="p-4">{{ a.cliente_nome }}<br><span class="text-xs text-gray-400 font-mono">{{ a.cliente_whatsapp }}</span></td>
                                 <td class="p-4"><span class="bg-theme-light text-theme px-2 py-1 rounded-md text-xs font-bold">{{ a.service.nome|default:'-' }}</span></td>
@@ -129,7 +135,7 @@
                                 </td>
                             </tr>
                             {% empty %}
-                            <tr><td colspan="5" class="p-10 text-center text-slate-400">Nenhum agendamento encontrado.</td></tr>
+                            <tr><td colspan="6" class="p-10 text-center text-slate-400">Nenhum agendamento encontrado.</td></tr>
                             {% endfor %}
                         </tbody>
                     </table>
