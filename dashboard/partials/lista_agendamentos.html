@@ -1,0 +1,31 @@
+{% for a in agendamentos %}
+<tr class="hover:bg-slate-50 transition-colors group linha-agendamento" data-date="{{ a.data|date:'Y-m-d' }}" data-prof="{{ a.professional_id }}">
+    
+    <td class="p-4 font-mono font-bold text-theme">{{ a.codigo_validacao|default:'-' }}</td>
+    
+    <td class="p-4 font-bold">{{ a.data|date:"d/m/Y" }} às {{ a.hora_inicio|time:"H:i" }}</td>
+    
+    <td class="p-4">{{ a.cliente_nome }}<br><span class="text-xs text-gray-400 font-mono">{{ a.cliente_whatsapp }}</span></td>
+    
+    <td class="p-4"><span class="bg-theme-light text-theme px-2 py-1 rounded-md text-xs font-bold">{{ a.service.nome|default:'-' }}</span></td>
+    
+    <td class="p-4 flex items-center gap-2">
+        <div class="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 overflow-hidden">
+            {% if a.professional.foto %}
+                <img src="{{ a.professional.foto.url }}" class="w-full h-full object-cover">
+            {% else %}
+                {{ a.professional.nome|slice:":1"|default:'?' }}
+            {% endif %}
+        </div>
+        {{ a.professional.nome|default:'-' }}
+    </td>
+    
+    <td class="p-4 text-center">
+        <div class="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button onclick="confirmarExclusao('agendamentos', {{ a.id }})" class="p-2 rounded-lg text-red-500 hover:bg-red-50 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+        </div>
+    </td>
+</tr>
+{% empty %}
+<tr><td colspan="6" class="p-10 text-center text-slate-400">Nenhum agendamento encontrado.</td></tr>
+{% endfor %}

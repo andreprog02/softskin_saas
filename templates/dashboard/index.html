@@ -103,35 +103,16 @@
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                <th class="p-4">Cód.</th> <th class="p-4">Data/Hora</th><th class="p-4">Cliente</th><th class="p-4">Serviço</th><th class="p-4">Profissional</th><th class="p-4 text-center">Ações</th>
+                                <th class="p-4">Cód.</th>
+                                <th class="p-4">Data/Hora</th>
+                                <th class="p-4">Cliente</th>
+                                <th class="p-4">Serviço</th>
+                                <th class="p-4">Profissional</th>
+                                <th class="p-4 text-center">Ações</th>
                             </tr>
                         </thead>
                         <tbody class="text-sm text-slate-700 divide-y divide-slate-50" id="tabelaAgendamentos">
-                            {% for a in agendamentos %}
-                            <tr class="hover:bg-slate-50 transition-colors group linha-agendamento" data-date="{{ a.data|date:'Y-m-d' }}" data-prof="{{ a.professional_id }}">
-                                <td class="p-4 font-mono font-bold text-theme">{{ a.codigo_validacao|default:'-' }}</td>
-                                <td class="p-4 font-bold">{{ a.data|date:"d/m/Y" }} às {{ a.hora_inicio|time:"H:i" }}</td>
-                                <td class="p-4">{{ a.cliente_nome }}<br><span class="text-xs text-gray-400 font-mono">{{ a.cliente_whatsapp }}</span></td>
-                                <td class="p-4"><span class="bg-theme-light text-theme px-2 py-1 rounded-md text-xs font-bold">{{ a.service.nome|default:'-' }}</span></td>
-                                <td class="p-4 flex items-center gap-2">
-                                    <div class="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px] font-bold text-slate-500 overflow-hidden">
-                                        {% if a.professional.foto %}
-                                            <img src="{{ a.professional.foto.url }}" class="w-full h-full object-cover">
-                                        {% else %}
-                                            {{ a.professional.nome|slice:":1"|default:'?' }}
-                                        {% endif %}
-                                    </div>
-                                    {{ a.professional.nome|default:'-' }}
-                                </td>
-                                <td class="p-4 text-center">
-                                    <div class="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button onclick="confirmarExclusao('agendamentos', {{ a.id }})" class="p-2 rounded-lg text-red-500 hover:bg-red-50 transition"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-                                    </div>
-                                </td>
-                            </tr>
-                            {% empty %}
-                            <tr><td colspan="6" class="p-10 text-center text-slate-400">Nenhum agendamento encontrado.</td></tr>
-                            {% endfor %}
+                            {% include "dashboard/partials/lista_agendamentos.html" %}
                         </tbody>
                     </table>
                     <div id="msgSemResultados" class="hidden p-10 text-center text-slate-400"><i data-lucide="search-x" class="w-12 h-12 mx-auto mb-3 opacity-20"></i><p>Nenhum agendamento para este filtro.</p></div>
@@ -418,19 +399,44 @@
         return cookieValue;
     }
 
-    // 3. FUNÇÃO REQUEST
+    // 3. FUNÇÃO REQUEST (CORRIGIDA E BLINDADA)
     async function request(url, method, body) {
+        // CORREÇÃO: Adiciona barra no final se não tiver (evita 301 Redirect que perde dados)
+        if (!url.endsWith('/') && !url.includes('?')) {
+            url += '/';
+        }
+
         const headers = { 'Content-Type': 'application/json' };
-        if (method !== 'GET') headers['X-CSRFToken'] = getCookie('csrftoken'); 
+        
+        // CSRF Token para métodos inseguros
+        if (method !== 'GET') {
+            headers['X-CSRFToken'] = getCookie('csrftoken'); 
+        }
+        
+        const config = { method, headers };
+
+        // Tratamento especial para FormData (Upload de Arquivos)
+        if (body) {
+            if (body instanceof FormData) {
+                // Remove Content-Type para o browser definir boundary automaticamente
+                delete headers['Content-Type'];
+                config.body = body;
+            } else {
+                config.body = JSON.stringify(body);
+            }
+        }
         
         try {
-            const r = await fetch(url, { method, headers, body: JSON.stringify(body) });
+            const r = await fetch(url, config);
+            
             if (r.ok) return await r.json();
+            
             const txt = await r.text();
-            throw new Error(txt);
+            throw new Error(txt || "Erro desconhecido no servidor");
         } catch (e) {
             console.error(e);
             alert("Erro na operação: " + e.message);
+            throw e; 
         }
     }
 
@@ -495,7 +501,8 @@
     function confirmarExclusao(tipo, id) {
         document.getElementById('modal-confirm-delete').classList.remove('hidden');
         document.getElementById('btn-confirm-delete').onclick = async function() {
-            await request(`/api/v1/${tipo}/${id}`, 'DELETE');
+            // CORREÇÃO: Garante a barra no final
+            await request(`/api/v1/${tipo}/${id}/`, 'DELETE');
             location.reload();
         };
     }
@@ -584,14 +591,18 @@
         formData.append('escala', JSON.stringify(escala));
         formData.append('intervalos', JSON.stringify(currentProfIntervals));
 
-        // SEMPRE POST (A API detecta update pelo ID)
-        const url = id ? `/api/v1/profissionais/${id}` : '/api/v1/profissionais/';
+        // CORREÇÃO: PUT para editar, POST para criar. Com barras no final.
+        const method = id ? 'PUT' : 'POST';
+        const url = id ? `/api/v1/profissionais/${id}/` : '/api/v1/profissionais/';
+
         try {
+            // Usa o fetch diretamente para FormData, mas com nosso token
             const res = await fetch(url, {
-                method: 'POST', 
-                headers: { 'X-CSRFToken': getCookie('csrftoken') },
+                method: method, 
+                headers: { 'X-CSRFToken': getCookie('csrftoken') }, // NÃO setar Content-Type
                 body: formData
             });
+            
             if(res.ok) { location.reload(); } 
             else { const txt = await res.text(); alert("Erro: " + txt); }
         } catch(e) { console.error(e); alert("Erro de conexão"); }
@@ -607,7 +618,14 @@
         lucide.createIcons(); 
     }
     function editarCategoria(id, n){ document.getElementById('cat_id_edicao').value=id; document.getElementById('cat_nome_nova').value=n; document.getElementById('btn-save-cat').innerHTML='<i data-lucide="check" class="w-5 h-5"></i>'; lucide.createIcons(); }
-    async function salvarCategoria(){ const n=document.getElementById('cat_nome_nova').value, id=document.getElementById('cat_id_edicao').value; if(n){ if(id) await request(`/api/v1/categorias/${id}`, 'PUT', {nome:n}); else await request('/api/v1/categorias/', 'POST', {nome:n}); showToast('Salvo!'); renderListaCategorias(); location.reload(); } }
+    async function salvarCategoria(){ 
+        const n=document.getElementById('cat_nome_nova').value, id=document.getElementById('cat_id_edicao').value; 
+        if(n){ 
+            if(id) await request(`/api/v1/categorias/${id}/`, 'PUT', {nome:n}); 
+            else await request('/api/v1/categorias/', 'POST', {nome:n}); 
+            showToast('Salvo!'); renderListaCategorias(); location.reload(); 
+        } 
+    }
 
     function abrirModalServico(id=null){ 
         const s = id ? SERVICOS.find(x=>x.id==id) : null;
@@ -619,18 +637,32 @@
         const sel=document.getElementById('ms_cat'); sel.innerHTML='<option value="">Sem Categoria</option>'; 
         CATEGORIAS.forEach(c=>sel.innerHTML+=`<option value="${c.id}" ${s&&s.category_id==c.id?'selected':''}>${c.nome}</option>`); 
     }
+    
     async function salvarServico(){ 
         const precoStr = document.getElementById('ms_preco').value;
         const precoFloat = precoStr ? parseFloat(precoStr.replace(/\./g, '').replace(',', '.')) : 0.00;
-        const p={nome:document.getElementById('ms_nome').value, preco: precoFloat, duracao_minutos:document.getElementById('ms_duracao').value, category_id:document.getElementById('ms_cat').value}, id=document.getElementById('ms_id').value; 
-        if(id) await request(`/api/v1/servicos/${id}`, 'PUT', p); else await request('/api/v1/servicos/', 'POST', p); location.reload(); 
+        
+        // CORREÇÃO: Usando 'category' em vez de 'category_id' para o DRF
+        const p={
+            nome: document.getElementById('ms_nome').value, 
+            preco: precoFloat, 
+            duracao_minutos: document.getElementById('ms_duracao').value, 
+            category: document.getElementById('ms_cat').value 
+        }; 
+        
+        const id=document.getElementById('ms_id').value; 
+        
+        if(id) await request(`/api/v1/servicos/${id}/`, 'PUT', p); 
+        else await request('/api/v1/servicos/', 'POST', p); 
+        
+        location.reload(); 
     }
 
     function addIntervalo(){ const i=document.getElementById('mp_int_ini').value, f=document.getElementById('mp_int_fim').value; if(i&&f){ currentProfIntervals.push({start:i,end:f}); renderIntervalos(); } }
     function renderIntervalos(){ document.getElementById('lista_intervalos').innerHTML=currentProfIntervals.map((x,i)=>`<div class="flex justify-between items-center bg-white border p-2 rounded text-sm"><span>${x.start} - ${x.end}</span><button onclick="currentProfIntervals.splice(${i},1);renderIntervalos()" class="text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`).join(''); lucide.createIcons(); }
 
     function abrirModalFeriado(id=null){ const f = id ? FERIADOS.find(x=>x.id==id) : null; document.getElementById('modal-feriado').classList.remove('hidden'); document.getElementById('titulo-modal-feriado').innerText=f?'Editar Feriado':'Novo Feriado'; document.getElementById('mf_id').value=f?f.id:''; document.getElementById('mf_data').value=f?f.data:''; document.getElementById('mf_desc').value=f?f.descricao:''; }
-    async function salvarNovoFeriado(){ const p={data:document.getElementById('mf_data').value, descricao:document.getElementById('mf_desc').value}, id=document.getElementById('mf_id').value; if(id) await request(`/api/v1/feriados/${id}`, 'PUT', p); else await request('/api/v1/feriados/','POST', p); location.reload(); }
+    async function salvarNovoFeriado(){ const p={data:document.getElementById('mf_data').value, descricao:document.getElementById('mf_desc').value}, id=document.getElementById('mf_id').value; if(id) await request(`/api/v1/feriados/${id}/`, 'PUT', p); else await request('/api/v1/feriados/','POST', p); location.reload(); }
 
     function abrirModalFolga(id=null){
         const f = id ? FOLGAS.find(x=>x.id==id) : null;
@@ -642,7 +674,7 @@
         if(!diaTodo){ document.getElementById('mfo_ini').value=f.hora_inicio; document.getElementById('mfo_fim').value=f.hora_fim; }
     }
     function toggleFolgaDiaTodo(){ const c=document.getElementById('mfo_diatodo').checked, div=document.getElementById('container-horas-folga'); if(c) div.classList.add('opacity-50','pointer-events-none'); else div.classList.remove('opacity-50','pointer-events-none'); }
-    async function salvarNovaFolga(){ const dt=document.getElementById('mfo_diatodo').checked; const p={professional_id:document.getElementById('mfo_prof').value, data:document.getElementById('mfo_data').value, hora_inicio:dt?null:document.getElementById('mfo_ini').value, hora_fim:dt?null:document.getElementById('mfo_fim').value}, id=document.getElementById('mfo_id').value; if(id) await request(`/api/v1/folgas-individuais/${id}`, 'PUT', p); else await request('/api/v1/folgas-individuais/', 'POST', p); location.reload(); }
+    async function salvarNovaFolga(){ const dt=document.getElementById('mfo_diatodo').checked; const p={professional_id:document.getElementById('mfo_prof').value, data:document.getElementById('mfo_data').value, hora_inicio:dt?null:document.getElementById('mfo_ini').value, hora_fim:dt?null:document.getElementById('mfo_fim').value}, id=document.getElementById('mfo_id').value; if(id) await request(`/api/v1/folgas-individuais/${id}/`, 'PUT', p); else await request('/api/v1/folgas-individuais/', 'POST', p); location.reload(); }
 
     function abrirModalLogout(){ document.getElementById('modal-logout').classList.remove('hidden'); }
     function copiarLink(){ navigator.clipboard.writeText(`${window.location.origin}/agendar/${SALON_SLUG}`); showToast('Link copiado!'); }

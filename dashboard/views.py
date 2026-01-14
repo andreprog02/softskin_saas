@@ -1,24 +1,36 @@
 import json
-import time # Necessário para o SSE
+import time
 from django.shortcuts import render, get_object_or_404
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse, StreamingHttpResponse # Necessário para o SSE
-from django.views.decorators.http import require_http_methods
-from django.views.decorators.csrf import csrf_exempt 
+from django.http import StreamingHttpResponse, JsonResponse
+from django.views.decorators.csrf import csrf_exempt
 
+# DRF Imports
+from rest_framework import viewsets, status
+from rest_framework.response import Response
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+
+# Models & Serializers
 from core.models import Salon
 from scheduling.models import Service, Professional, Appointment, Category, Holiday, SpecialSchedule, WorkingHour, ProfessionalBreak
+from .serializers import ServiceSerializer, ProfessionalSerializer, CategorySerializer, HolidaySerializer, SpecialScheduleSerializer, AppointmentSerializer
+
+# --- VIEWS DE RENDERIZAÇÃO (HTML) ---
 
 @login_required
 def dashboard_view(request):
     salao = request.user.salon
     
+    # Buscas otimizadas para o template
     agendamentos = Appointment.objects.filter(salon=salao).order_by('-data', 'hora_inicio')
     categorias = Category.objects.filter(salon=salao)
     servicos = Service.objects.filter(salon=salao)
     feriados = Holiday.objects.filter(salon=salao)
     folgas = SpecialSchedule.objects.filter(salon=salao)
 
+    # Montagem da estrutura complexa de profissionais para o template
     profs_db = Professional.objects.filter(salon=salao)
     profissionais_list = []
     for p in profs_db:
@@ -51,36 +63,23 @@ def dashboard_view(request):
     }
     return render(request, "dashboard/index.html", context)
 
-# --- NOVAS FUNÇÕES PARA ATUALIZAÇÃO EM TEMPO REAL ---
-
 @login_required
 def htmx_agendamentos(request):
-    """Retorna apenas as linhas da tabela atualizadas (usado pelo Javascript)"""
+    """Retorna o HTML parcial da tabela para atualização automática"""
     salao = request.user.salon
     agendamentos = Appointment.objects.filter(salon=salao).order_by('-data', 'hora_inicio')
-    
-    # Renderiza o template parcial que criamos
-    return render(request, "dashboard/partials/lista_agendamentos.html", {
-        "agendamentos": agendamentos
-    })
+    return render(request, "dashboard/partials/lista_agendamentos.html", {"agendamentos": agendamentos})
 
 @login_required
 def sse_updates(request):
-    """Canal de escuta para Server-Sent Events"""
+    """Canal de SSE para notificar o frontend sobre mudanças"""
     def event_stream():
-        # Estado inicial: conta quantos agendamentos existem
         last_count = Appointment.objects.count()
-        
         while True:
-            # Verifica o estado atual
             current_count = Appointment.objects.count()
-            
-            # Se mudou (alguém agendou ou deletou), envia sinal 'update'
             if current_count != last_count:
                 last_count = current_count
                 yield f"data: update\n\n"
-            
-            # Espera 1 segundo antes de checar de novo (economiza CPU)
             time.sleep(1)
 
     response = StreamingHttpResponse(event_stream(), content_type='text/event-stream')
@@ -88,235 +87,154 @@ def sse_updates(request):
     response['X-Accel-Buffering'] = 'no'
     return response
 
-# --- APIs CRUD ---
+# --- VIEWSETS (CRUD PADRONIZADO E SEGURO) ---
 
-@csrf_exempt
-@login_required
-def api_servicos(request, item_id=None):
-    salao = request.user.salon
-    
-    if request.method == "DELETE":
-        s = get_object_or_404(Service, id=item_id, salon=salao)
-        s.delete()
-        return JsonResponse({"ok": True})
+class BaseSalonViewSet(viewsets.ModelViewSet):
+    """Base para garantir que o usuário só acesse dados do seu próprio salão"""
+    permission_classes = [IsAuthenticated]
 
-    data = json.loads(request.body)
-    cat_id = data.get("category_id")
-    if cat_id == "" or cat_id == "sem-categoria":
-        cat_id = None
+    def get_queryset(self):
+        return self.queryset.filter(salon=self.request.user.salon)
 
-    if request.method == "POST":
-        s = Service.objects.create(
-            salon=salao,
-            nome=data['nome'],
-            preco=data['preco'],
-            duracao_minutos=data['duracao_minutos'],
-            category_id=cat_id
-        )
-        return JsonResponse({"id": s.id, "ok": True})
-    
-    elif request.method == "PUT":
-        s = get_object_or_404(Service, id=item_id, salon=salao)
-        s.nome = data.get('nome', s.nome)
-        s.preco = data.get('preco', s.preco)
-        s.duracao_minutos = data.get('duracao_minutos', s.duracao_minutos)
-        s.category_id = cat_id
-        s.save()
-        return JsonResponse({"ok": True})
+    def perform_create(self, serializer):
+        serializer.save(salon=self.request.user.salon)
 
-@csrf_exempt
-@login_required
-def api_profissionais(request, item_id=None):
-    salao = request.user.salon
-    
-    if request.method == "DELETE":
-        p = get_object_or_404(Professional, id=item_id, salon=salao)
-        p.delete()
-        return JsonResponse({"ok": True})
+class CategoryViewSet(BaseSalonViewSet):
+    queryset = Category.objects.all()
+    serializer_class = CategorySerializer
 
-    if request.method == "POST":
-        try:
-            data = json.loads(request.body)
-            is_json = True
-        except:
-            data = request.POST 
-            is_json = False
+class ServiceViewSet(BaseSalonViewSet):
+    queryset = Service.objects.all()
+    serializer_class = ServiceSerializer
 
-        if not item_id:
-            p = Professional.objects.create(
-                salon=salao, 
-                nome=data['nome'], 
-                especialidade=data.get('especialidade')
-            )
-            if not is_json and 'foto' in request.FILES:
-                p.foto = request.FILES['foto']
-                p.save()
-        else:
-            p = get_object_or_404(Professional, id=item_id, salon=salao)
-            p.nome = data.get('nome', p.nome)
-            p.especialidade = data.get('especialidade', p.especialidade)
-            
-            if not is_json:
-                if 'foto' in request.FILES:
-                    p.foto = request.FILES['foto']
-                elif data.get('remover_foto') == 'true':
-                    p.foto.delete(save=False)
-                    p.foto = None
-            
-            p.save()
+class HolidayViewSet(BaseSalonViewSet):
+    queryset = Holiday.objects.all()
+    serializer_class = HolidaySerializer
 
+class SpecialScheduleViewSet(BaseSalonViewSet):
+    queryset = SpecialSchedule.objects.all()
+    serializer_class = SpecialScheduleSerializer
+
+class AppointmentViewSet(BaseSalonViewSet):
+    queryset = Appointment.objects.all()
+    serializer_class = AppointmentSerializer
+
+class ProfessionalViewSet(BaseSalonViewSet):
+    queryset = Professional.objects.all()
+    serializer_class = ProfessionalSerializer
+    # Suporta JSON e Upload de Arquivos (Multipart)
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def create(self, request, *args, **kwargs):
+        # Extrai dados aninhados que vêm como strings JSON no FormData
+        data = request.data.dict()
         servicos_raw = data.get('servicos_ids')
-        if servicos_raw:
-            if not is_json and isinstance(servicos_raw, str):
-                try: servicos_ids = json.loads(servicos_raw)
-                except: servicos_ids = []
-            else:
-                servicos_ids = servicos_raw
-            p.services.set(servicos_ids)
-
         escala_raw = data.get('escala')
-        if escala_raw:
-            if not is_json and isinstance(escala_raw, str):
-                try: escala_data = json.loads(escala_raw)
-                except: escala_data = {}
-            else:
-                escala_data = escala_raw
-            
-            p.working_hours.all().delete()
-            p.breaks.all().delete()
-            
-            dias = escala_data.get("dias", [])
-            inicio = escala_data.get("inicio")
-            fim = escala_data.get("fim")
-            
-            for dia in dias:
-                if inicio and fim:
-                    WorkingHour.objects.create(professional=p, day_of_week=dia, start_time=inicio, end_time=fim)
-            
-            intervalos_raw = data.get('intervalos')
-            if intervalos_raw:
-                if not is_json and isinstance(intervalos_raw, str):
-                    try: intervalos_list = json.loads(intervalos_raw)
-                    except: intervalos_list = []
+        intervalos_raw = data.get('intervalos')
+
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        professional = serializer.instance
+
+        self._process_nested_data(professional, servicos_raw, escala_raw, intervalos_raw)
+        
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        
+        data = request.data.dict()
+        servicos_raw = data.get('servicos_ids')
+        escala_raw = data.get('escala')
+        intervalos_raw = data.get('intervalos')
+        remover_foto = data.get('remover_foto')
+
+        # Lógica específica para remover foto
+        if remover_foto == 'true':
+            instance.foto.delete(save=False)
+            data['foto'] = None
+
+        serializer = self.get_serializer(instance, data=data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        self._process_nested_data(instance, servicos_raw, escala_raw, intervalos_raw)
+
+        return Response(serializer.data)
+
+    def _process_nested_data(self, professional, servicos_raw, escala_raw, intervalos_raw):
+        """Processa os dados complexos (escalas, serviços) enviados pelo frontend"""
+        # 1. Serviços (ManyToMany)
+        if servicos_raw:
+            try:
+                if isinstance(servicos_raw, str):
+                    ids = json.loads(servicos_raw)
                 else:
-                    intervalos_list = intervalos_raw
+                    ids = servicos_raw
+                professional.services.set(ids)
+            except Exception as e:
+                print(f"Erro ao processar serviços: {e}")
+
+        # 2. Escala (WorkingHour)
+        if escala_raw:
+            try:
+                escala_data = json.loads(escala_raw) if isinstance(escala_raw, str) else escala_raw
                 
-                for i in intervalos_list:
-                    ProfessionalBreak.objects.create(professional=p, day_of_week=dia, start_time=i["start"], end_time=i["end"])
+                # Limpa e recria
+                professional.working_hours.all().delete()
+                professional.breaks.all().delete()
+                
+                dias = escala_data.get("dias", [])
+                inicio = escala_data.get("inicio")
+                fim = escala_data.get("fim")
+                
+                for dia in dias:
+                    if inicio and fim:
+                        WorkingHour.objects.create(
+                            professional=professional, 
+                            day_of_week=dia, 
+                            start_time=inicio, 
+                            end_time=fim
+                        )
+                
+                # 3. Intervalos (ProfessionalBreak) - depende da escala ser processada
+                if intervalos_raw:
+                    intervalos_list = json.loads(intervalos_raw) if isinstance(intervalos_raw, str) else intervalos_raw
+                    for i in intervalos_list:
+                        for dia in dias: # Aplica intervalos nos dias de trabalho
+                            ProfessionalBreak.objects.create(
+                                professional=professional, 
+                                day_of_week=dia, 
+                                start_time=i["start"], 
+                                end_time=i["end"]
+                            )
+            except Exception as e:
+                print(f"Erro ao processar escala: {e}")
 
-        return JsonResponse({"ok": True})
+# --- API MANUAL (Configurações Específicas) ---
+# Mantida separada pois lida com atualização parcial de campos específicos do Salon
 
-    return JsonResponse({"error": "Method not allowed"}, status=405)
-
-@csrf_exempt
-@login_required
-def api_categorias(request, item_id=None):
-    salao = request.user.salon
-    
-    if request.method == "DELETE":
-        c = get_object_or_404(Category, id=item_id, salon=salao)
-        c.delete()
-        return JsonResponse({"ok": True})
-
-    data = json.loads(request.body)
-    
-    if request.method == "POST":
-        c = Category.objects.create(salon=salao, nome=data['nome'])
-        return JsonResponse({"id": c.id, "ok": True})
-    elif request.method == "PUT":
-        c = get_object_or_404(Category, id=item_id, salon=salao)
-        c.nome = data.get('nome', c.nome)
-        c.save()
-        return JsonResponse({"ok": True})
-
-@csrf_exempt
-@login_required
-def api_feriados(request, item_id=None):
-    salao = request.user.salon
-    
-    if request.method == "DELETE":
-        h = get_object_or_404(Holiday, id=item_id, salon=salao)
-        h.delete()
-        return JsonResponse({"ok": True})
-
-    data = json.loads(request.body)
-    
-    if request.method == "POST":
-        Holiday.objects.create(salon=salao, data=data['data'], descricao=data['descricao'])
-        return JsonResponse({"ok": True})
-    elif request.method == "PUT":
-        h = get_object_or_404(Holiday, id=item_id, salon=salao)
-        h.data = data.get('data', h.data)
-        h.descricao = data.get('descricao', h.descricao)
-        h.save()
-        return JsonResponse({"ok": True})
-
-@csrf_exempt
-@login_required
-def api_folgas(request, item_id=None):
-    salao = request.user.salon
-    
-    if request.method == "DELETE":
-        f = get_object_or_404(SpecialSchedule, id=item_id, salon=salao)
-        f.delete()
-        return JsonResponse({"ok": True})
-
-    data = json.loads(request.body)
-    prof_id = data.get('professional_id')
-    if not Professional.objects.filter(id=prof_id, salon=salao).exists():
-        return JsonResponse({"error": "Profissional inválido"}, status=400)
-
-    if request.method == "POST":
-        SpecialSchedule.objects.create(
-            salon=salao, 
-            professional_id=prof_id,
-            data=data['data'],
-            hora_inicio=data.get('hora_inicio'),
-            hora_fim=data.get('hora_fim')
-        )
-        return JsonResponse({"ok": True})
-    elif request.method == "PUT":
-        folga = get_object_or_404(SpecialSchedule, id=item_id, salon=salao)
-        folga.data = data.get('data', folga.data)
-        folga.hora_inicio = data.get('hora_inicio')
-        folga.hora_fim = data.get('hora_fim')
-        folga.save()
-        return JsonResponse({"ok": True})
-
-@csrf_exempt
-@login_required
-def api_agendamentos(request, item_id):
-    salao = request.user.salon
-    
-    if request.method == "DELETE":
-        a = get_object_or_404(Appointment, id=item_id, salon=salao)
-        a.delete()
-        return JsonResponse({"ok": True})
-
-    data = json.loads(request.body)
-    appt = get_object_or_404(Appointment, id=item_id, salon=salao)
-    
-    if request.method == "PUT":
-        if 'data' in data: appt.data = data['data']
-        if 'hora_inicio' in data: appt.hora_inicio = data['hora_inicio']
-        if 'service_id' in data: appt.service_id = data['service_id']
-        if 'professional_id' in data: appt.professional_id = data['professional_id']
-        appt.save()
-        return JsonResponse({"ok": True})
-
-@csrf_exempt
-@login_required
-def api_delete_item(request, tipo, item_id):
-    return JsonResponse({"error": "Use endpoint específico"}, status=400)
-
-@csrf_exempt
-@login_required
+@api_view(['PUT'])
+@permission_classes([IsAuthenticated])
 def api_configuracoes(request, salon_id):
     salao = request.user.salon
-    if salao.id != int(salon_id): return JsonResponse({"error": "Forbidden"}, status=403)
-    data = json.loads(request.body)
+    if salao.id != int(salon_id):
+        return Response({"error": "Forbidden"}, status=403)
+    
+    data = request.data
     allowed = ["nome", "cnpj_cpf", "telefone", "hora_abertura_padrao", "hora_fechamento_padrao", "intervalo_minutos", "dias_fechados", "cor_do_tema", "ocultar_precos", "endereco"]
+    
     for k, v in data.items():
-        if k in allowed: setattr(salao, k, v)
+        if k in allowed:
+            # Se for endereço e vier como dicionário, converte pra JSON string se seu model espera string
+            # Se seu model espera JSONField, pode passar direto. Assumindo TextField/CharField com JSON:
+            if k == 'endereco' and isinstance(v, dict):
+                setattr(salao, k, json.dumps(v))
+            else:
+                setattr(salao, k, v)
+    
     salao.save()
-    return JsonResponse({"ok": True})
+    return Response({"ok": True})
