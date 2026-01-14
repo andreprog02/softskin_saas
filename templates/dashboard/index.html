@@ -103,12 +103,7 @@
                     <table class="w-full text-left border-collapse">
                         <thead>
                             <tr class="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                                <th class="p-4">Cód.</th>
-                                <th class="p-4">Data/Hora</th>
-                                <th class="p-4">Cliente</th>
-                                <th class="p-4">Serviço</th>
-                                <th class="p-4">Profissional</th>
-                                <th class="p-4 text-center">Ações</th>
+                                <th class="p-4">Cód.</th> <th class="p-4">Data/Hora</th><th class="p-4">Cliente</th><th class="p-4">Serviço</th><th class="p-4">Profissional</th><th class="p-4 text-center">Ações</th>
                             </tr>
                         </thead>
                         <tbody class="text-sm text-slate-700 divide-y divide-slate-50" id="tabelaAgendamentos">
@@ -405,7 +400,7 @@
     const SALON_SLUG = "{{ salao.slug }}";
     
     let currentProfIntervals = [];
-    let deleteCallback = null;
+    let eventSource;
 
     // 2. HELPER DE COOKIE (CSRF)
     function getCookie(name) {
@@ -469,19 +464,15 @@
 
             return `
             <div class="card p-6 flex flex-col items-center text-center h-full hover:shadow-lg transition-all group relative">
-                
                 <div class="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button onclick="abrirModalProfissional(${p.id})" class="text-blue-500 hover:bg-blue-50 p-2 rounded-lg transition"><i data-lucide="edit-2" class="w-4 h-4"></i></button>
                     <button onclick="confirmarExclusao('profissionais',${p.id})" class="text-red-500 hover:bg-red-50 p-2 rounded-lg transition"><i data-lucide="trash" class="w-4 h-4"></i></button>
                 </div>
-
                 <div class="w-32 h-32 rounded-full border-4 border-slate-50 shadow-sm overflow-hidden mb-4 mt-2">
                     ${imgHtml}
                 </div>
-                
                 <h3 class="font-bold text-xl text-slate-800 mb-1 leading-tight">${p.nome}</h3>
                 <p class="text-sm font-medium text-theme bg-theme-light px-3 py-1 rounded-full mb-4 inline-block">${p.especialidade||'Profissional'}</p>
-                
                 <div class="text-xs text-slate-400 mt-auto pt-4 border-t border-slate-50 w-full">
                     ${p.servicos_ids.length} serviços habilitados
                 </div>
@@ -667,6 +658,39 @@
     function mascaraCep(i){ let v=i.value.replace(/\D/g,""); if(v.length>8) v=v.slice(0,8); v=v.replace(/^(\d{5})(\d)/,"$1-$2"); i.value=v; }
     function mascaraMoeda(i) { let v = i.value.replace(/\D/g,''); v = (v/100).toFixed(2) + ''; v = v.replace(".", ","); v = v.replace(/(\d)(\d{3})(\d{3}),/g, "$1.$2.$3,"); v = v.replace(/(\d)(\d{3}),/g, "$1.$2,"); i.value = v; }
 
+    // --- ATUALIZAÇÃO EM TEMPO REAL (SSE) ---
+    function iniciarEscutaRealTime() {
+        if (typeof(EventSource) !== "undefined") {
+            eventSource = new EventSource("/api/v1/events/stream");
+            
+            eventSource.onmessage = async function(event) {
+                if (event.data === "update") {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const abaAtual = urlParams.get('tab') || 'agenda';
+                    
+                    if (abaAtual === 'agenda' && !document.hidden) {
+                        try {
+                            const response = await fetch('/api/v1/partials/agendamentos');
+                            if (response.ok) {
+                                const html = await response.text();
+                                document.getElementById('tabelaAgendamentos').innerHTML = html;
+                                filtrarAgenda();
+                                lucide.createIcons();
+                                showToast("Agenda atualizada!");
+                            }
+                        } catch (e) {
+                            console.error("Erro SSE:", e);
+                        }
+                    }
+                }
+            };
+            eventSource.onerror = function() { console.warn("Conexão SSE instável."); };
+        } else {
+            console.log("SSE não suportado. Usando refresh.");
+            setInterval(() => window.location.reload(), 30000);
+        }
+    }
+
     window.addEventListener('DOMContentLoaded', () => {
         renderServicos(); renderProfissionais(); renderListasAusencias();
         const selFiltro = document.getElementById('filtroProfissional'); PROFISSIONAIS.forEach(p=>selFiltro.innerHTML+=`<option value="${p.id}">${p.nome}</option>`);
@@ -675,6 +699,8 @@
         new QRCode(document.getElementById("qrcode"), {text: window.location.origin + "/agendar/{{ salao.slug }}", width: 64, height: 64});
         lucide.createIcons();
         const urlParams = new URLSearchParams(window.location.search); switchTab(urlParams.get('tab') || 'agenda');
+        
+        iniciarEscutaRealTime(); // Inicia o SSE
     });
 </script>
 </body>

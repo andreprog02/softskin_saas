@@ -24,6 +24,12 @@ urlpatterns = [
     path('agendamentos/<int:item_id>', views.api_agendamentos, name='api_agendamentos_edit'), # Rota Adicionada
 
     path('saloes/<int:salon_id>', views.api_configuracoes, name='api_config'),
+
+    # ROTA PARA O PARCIAL (HTML da tabela)
+    path('partials/agendamentos', views.htmx_agendamentos, name='partial_agendamentos'),
+
+    # ROTA PARA O "OUVIDO" (SSE) - NOVA
+    path('events/stream', views.sse_updates, name='sse_stream'),
     
     # Rota genérica para deletar (Mantenha sempre por último)
     path('<str:tipo>/<int:item_id>', views.api_delete_item, name='api_delete'),
