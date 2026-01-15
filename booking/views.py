@@ -1,183 +1,233 @@
 import json
-import random # Added missing import
-import string # Added missing import
-from datetime import datetime, timedelta, time
+import random
+import string
+from datetime import datetime, timedelta
 from django.shortcuts import render, get_object_or_404
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from core.models import Salon
-from scheduling.models import Service, Professional, Appointment, Holiday, SpecialSchedule, WorkingHour, ProfessionalBreak, Category
+from scheduling.models import Service, Professional, Appointment, Holiday, SpecialSchedule, WorkingHour, Category
 
 # --- FUNÇÃO AUXILIAR DE DISPONIBILIDADE ---
 def check_slot_availability(salao, prof, svc, date_obj, slot_time_obj):
+    """
+    Verifica se um horário específico (slot) está livre.
+    Retorna True (Livre) ou False (Ocupado).
+    """
     weekday = str(date_obj.weekday()) # 0=Segunda, 6=Domingo
 
-    # 1. Checa dia fechado (Global)
-    if salao.dias_fechados and weekday in salao.dias_fechados.split(','):
-        return False
-
-    # 2. DEFINIÇÃO DO SLOT
+    # 1. DEFINIÇÃO DO SLOT
     duration = svc.duracao_minutos if svc else salao.intervalo_minutos
     slot_start = slot_time_obj
     dummy_date = datetime(2000, 1, 1, slot_start.hour, slot_start.minute)
     slot_end_dt = dummy_date + timedelta(minutes=duration)
     slot_end = slot_end_dt.time()
     
-    # Virada de dia não permitida
+    # Bloqueia virada de dia (ex: serviço começando 23:50)
     if slot_end_dt.date() > dummy_date.date():
         return False
 
-    # 3. NOVO: Checa Horário de Funcionamento do Salão (Padrão ou Reduzido)
-    # Verifica se há um horário customizado para este dia da semana
-    abertura_salao = salao.hora_abertura_padrao
-    fechamento_salao = salao.hora_fechamento_padrao
-    
-    if salao.horarios_customizados and weekday in salao.horarios_customizados:
-        custom = salao.horarios_customizados[weekday]
-        if custom.get('inicio'):
-            abertura_salao = datetime.strptime(custom['inicio'], "%H:%M").time()
-        if custom.get('fim'):
-            fechamento_salao = datetime.strptime(custom['fim'], "%H:%M").time()
-    
-    # Se o agendamento cair fora do horário do salão, bloqueia
-    if slot_start < abertura_salao or slot_end > fechamento_salao:
+    # 2. DIA FECHADO GLOBAL
+    if salao.dias_fechados and weekday in salao.dias_fechados.split(','):
         return False
 
-    # 4. NOVO: Checa Feriado Global (Parcial ou Total)
+    # 3. HORÁRIO DE FUNCIONAMENTO (PADRÃO OU CUSTOMIZADO)
+    abertura = salao.hora_abertura_padrao
+    fechamento = salao.hora_fechamento_padrao
+    
+    # Tenta ler configuração específica do dia (ex: Sábado reduzido)
+    if salao.horarios_customizados:
+        try:
+            custom = salao.horarios_customizados
+            if isinstance(custom, str):
+                custom = json.loads(custom) if custom.strip() else {}
+            
+            if isinstance(custom, dict) and weekday in custom:
+                day_cfg = custom[weekday]
+                if day_cfg.get('inicio'):
+                    abertura = datetime.strptime(day_cfg['inicio'], "%H:%M").time()
+                if day_cfg.get('fim'):
+                    fechamento = datetime.strptime(day_cfg['fim'], "%H:%M").time()
+        except:
+            pass # Usa padrão se falhar
+
+    if slot_start < abertura or slot_end > fechamento:
+        return False
+
+    # 4. FERIADOS GLOBAIS (TOTAL OU PARCIAL)
     feriados = Holiday.objects.filter(salon=salao, data=date_obj)
     for f in feriados:
-        # Se não tiver hora definida, é feriado o dia todo
+        # Se não tem hora de início definida, é feriado o dia todo
         if not f.hora_inicio:
             return False
         
-        # Se for parcial, checa colisão: (FeriadoIni < SlotFim) E (FeriadoFim > SlotIni)
-        if slot_start < f.hora_fim and slot_end > f.hora_inicio:
-            return False
+        # Se for parcial, precisa ter início e fim. Se faltar fim, ignora para não quebrar.
+        if f.hora_inicio and f.hora_fim:
+            # Lógica de Colisão: Slot começa ANTES do bloqueio terminar E termina DEPOIS do bloqueio começar
+            if slot_start < f.hora_fim and slot_end > f.hora_inicio:
+                return False
 
-    # 5. Checa Escala do Profissional (Mantido)
-    work_hour = WorkingHour.objects.filter(professional=prof, day_of_week=int(weekday)).first()
-    if not work_hour:
-        return False
-    if slot_start < work_hour.start_time or slot_end > work_hour.end_time:
+    # 5. ESCALA DO PROFISSIONAL
+    wh = WorkingHour.objects.filter(professional=prof, day_of_week=int(weekday)).first()
+    if not wh:
+        return False # Não trabalha neste dia
+    
+    if slot_start < wh.start_time or slot_end > wh.end_time:
         return False
 
-    # 6. Checa Folga Individual do Profissional (Mantido)
+    # 6. INTERVALOS DE PAUSA (ALMOÇO)
+    # Verifica se o campo existe e tem dados
+    if hasattr(prof, 'intervalos') and prof.intervalos:
+        try:
+            intervals = prof.intervalos
+            # Se for string, converte para lista
+            if isinstance(intervals, str):
+                intervals = json.loads(intervals) if intervals.strip() else []
+            
+            # Garante que é lista
+            if isinstance(intervals, list):
+                for interval in intervals:
+                    # Tenta ler chaves variadas (start/end ou inicio/fim)
+                    start_str = interval.get('start') or interval.get('inicio')
+                    end_str = interval.get('end') or interval.get('fim')
+                    
+                    if start_str and end_str:
+                        # Limpa os segundos se houver (pega só os 5 primeiros caracteres: "12:00")
+                        s_clean = str(start_str)[:5]
+                        e_clean = str(end_str)[:5]
+                        
+                        try:
+                            i_start = datetime.strptime(s_clean, '%H:%M').time()
+                            i_end = datetime.strptime(e_clean, '%H:%M').time()
+                            
+                            # Lógica de colisão
+                            if slot_start < i_end and slot_end > i_start:
+                                return False
+                        except ValueError:
+                            continue # Pula se o formato for inválido
+        except Exception as e:
+            print(f"Erro ao ler intervalos: {e}") # Loga o erro no terminal
+            pass
+
+    # 7. FOLGAS INDIVIDUAIS (TOTAL OU PARCIAL)
+    # Folga Total
     if SpecialSchedule.objects.filter(salon=salao, professional=prof, data=date_obj, hora_inicio__isnull=True).exists():
         return False
-        
-    folgas_parciais = SpecialSchedule.objects.filter(salon=salao, professional=prof, data=date_obj, hora_inicio__isnull=False)
-    for folga in folgas_parciais:
-        if (slot_start < folga.hora_fim and slot_end > folga.hora_inicio):
-            return False
+    
+    # Folga Parcial
+    folgas = SpecialSchedule.objects.filter(salon=salao, professional=prof, data=date_obj, hora_inicio__isnull=False)
+    for folga in folgas:
+        if folga.hora_inicio and folga.hora_fim:
+            if slot_start < folga.hora_fim and slot_end > folga.hora_inicio:
+                return False
 
-    # 7. Checa Agendamentos Existentes (Mantido)
-    appointments = Appointment.objects.filter(professional=prof, data=date_obj)
+    # 8. AGENDAMENTOS EXISTENTES
+    appointments = Appointment.objects.filter(professional=prof, data=date_obj).exclude(status='cancelado') if hasattr(Appointment, 'status') else Appointment.objects.filter(professional=prof, data=date_obj)
+    
     for appt in appointments:
         appt_duration = appt.service.duracao_minutos if appt.service else salao.intervalo_minutos
-        appt_dummy = datetime(2000, 1, 1, appt.hora_inicio.hour, appt.hora_inicio.minute)
-        appt_end = (appt_dummy + timedelta(minutes=appt_duration)).time()
+        a_start = appt.hora_inicio
+        a_dummy = datetime(2000, 1, 1, a_start.hour, a_start.minute)
+        a_end = (a_dummy + timedelta(minutes=appt_duration)).time()
         
-        if (slot_start < appt_end and slot_end > appt.hora_inicio):
+        if slot_start < a_end and slot_end > a_start:
             return False
             
     return True
-# --- VIEWS ---
+
+# --- VIEWS PÚBLICAS ---
 
 def pagina_agendamento(request, slug):
     salao = get_object_or_404(Salon, slug=slug)
-    
     servicos = list(Service.objects.filter(salon=salao).values())
     categorias = list(Category.objects.filter(salon=salao).values())
     
-    feriados_objs = Holiday.objects.filter(salon=salao)
-    feriados = [{'data': f.data.strftime('%Y-%m-%d'), 'descricao': f.descricao} for f in feriados_objs]
+    # Prepara feriados e folgas para o calendário bloquear dias inteiros visualmente
+    feriados = [{'data': f.data.strftime('%Y-%m-%d')} for f in Holiday.objects.filter(salon=salao, hora_inicio__isnull=True)]
+    folgas = [{'data': f.data.strftime('%Y-%m-%d')} for f in SpecialSchedule.objects.filter(salon=salao, hora_inicio__isnull=True)]
     
-    folgas_objs = SpecialSchedule.objects.filter(salon=salao, hora_inicio__isnull=True)
-    folgas = [{'data': f.data.strftime('%Y-%m-%d')} for f in folgas_objs]
-
-    dias_fechados_lista = []
+    dias_fechados = []
     if salao.dias_fechados:
-        dias_fechados_lista = [int(x.strip()) for x in salao.dias_fechados.split(',') if x.strip().isdigit()]
+        dias_fechados = [int(x) for x in salao.dias_fechados.split(',') if x.strip().isdigit()]
 
-    # --- Processar Endereço ---
-    endereco_dict = {}
-    if salao.endereco:
-        try:
-            endereco_dict = json.loads(salao.endereco)
-        except:
-            endereco_dict = {}
+    endereco = {}
+    try:
+        if salao.endereco:
+            endereco = salao.endereco if isinstance(salao.endereco, dict) else json.loads(salao.endereco)
+    except: pass
 
-    context = {
+    return render(request, "booking/agendar.html", {
         "salao": salao,
         "servicos": servicos,
         "categorias": categorias,
         "feriados": feriados,
         "folgas": folgas,
-        "dias_fechados": dias_fechados_lista,
-        "turnstile_site_key": "",
-        "endereco": endereco_dict 
-    }
-    return render(request, "booking/agendar.html", context)
+        "dias_fechados": dias_fechados,
+        "endereco": endereco
+    })
 
 def api_profissionais_por_servico(request, slug, service_id):
     salao = get_object_or_404(Salon, slug=slug)
     profs = Professional.objects.filter(salon=salao, services__id=service_id)
-    
-    data = []
-    for p in profs:
-        data.append({
-            "id": p.id, 
-            "nome": p.nome,
-            "foto_url": p.foto.url if p.foto else None
-        })
-        
+    data = [{"id": p.id, "nome": p.nome, "foto_url": p.foto.url if p.foto else None} for p in profs]
     return JsonResponse(data, safe=False)
 
 def api_disponibilidade(request, slug, data_iso):
+    """
+    Gera os slots de tempo disponíveis.
+    """
     salao = get_object_or_404(Salon, slug=slug)
-    service_id = request.GET.get('service_id')
-    svc = get_object_or_404(Service, id=service_id) if service_id else None
     
     try:
+        service_id = int(request.GET.get('service_id', 0))
+        prof_id = int(request.GET.get('professional_id', 0))
         date_obj = datetime.strptime(data_iso, "%Y-%m-%d").date()
-    except ValueError:
+    except (ValueError, TypeError):
         return JsonResponse([], safe=False)
 
-    if svc:
-        profs = Professional.objects.filter(salon=salao, services=svc)
-    else:
-        profs = Professional.objects.filter(salon=salao)
+    svc = get_object_or_404(Service, id=service_id)
+    # Filtra apenas o profissional selecionado para otimizar
+    profs = Professional.objects.filter(id=prof_id, salon=salao)
 
     resultado = []
     
     for prof in profs:
+        # Se houver feriado de DIA INTEIRO, pula o profissional
+        if Holiday.objects.filter(salon=salao, data=date_obj, hora_inicio__isnull=True).exists():
+            continue
+            
+        # Se houver folga de DIA INTEIRO, pula
+        if SpecialSchedule.objects.filter(salon=salao, professional=prof, data=date_obj, hora_inicio__isnull=True).exists():
+            continue
+
         weekday = date_obj.weekday()
         wh = WorkingHour.objects.filter(professional=prof, day_of_week=weekday).first()
         if not wh: continue
 
-        slots_disponiveis = []
+        slots = []
+        # Define horário de início e fim baseados na escala
+        current = datetime.combine(date_obj, wh.start_time)
+        end_work = datetime.combine(date_obj, wh.end_time)
         
-        current_time = datetime.combine(date_obj, wh.start_time)
-        end_time = datetime.combine(date_obj, wh.end_time)
-        intervalo = salao.intervalo_minutos
+        # Incremento do loop
+        step = salao.intervalo_minutos
         
-        duracao = svc.duracao_minutos if svc else 30
-        
-        while current_time + timedelta(minutes=duracao) <= end_time:
-            time_obj = current_time.time()
-            if check_slot_availability(salao, prof, svc, date_obj, time_obj):
-                if date_obj == datetime.now().date() and time_obj < datetime.now().time():
-                    pass
-                else:
-                    slots_disponiveis.append(time_obj.strftime("%H:%M"))
+        while current + timedelta(minutes=svc.duracao_minutos) <= end_work:
+            t_obj = current.time()
             
-            current_time += timedelta(minutes=intervalo)
+            # Verifica disponibilidade atômica
+            if check_slot_availability(salao, prof, svc, date_obj, t_obj):
+                # Não mostra horários passados se for hoje
+                if date_obj > datetime.now().date() or (date_obj == datetime.now().date() and t_obj > datetime.now().time()):
+                    slots.append(t_obj.strftime("%H:%M"))
             
-        if slots_disponiveis:
+            current += timedelta(minutes=step)
+            
+        if slots:
             resultado.append({
                 "professional_id": prof.id,
                 "nome": prof.nome,
-                "horarios": slots_disponiveis
+                "horarios": slots
             })
 
     return JsonResponse(resultado, safe=False)
@@ -201,9 +251,8 @@ def api_confirmar_agendamento(request, slug):
         return JsonResponse({"message": f"Dados inválidos: {str(e)}"}, status=400)
 
     if not check_slot_availability(salao, prof, svc, date_obj, time_obj):
-        return JsonResponse({"message": "Horário não está mais disponível."}, status=409)
+        return JsonResponse({"message": "Ops! Esse horário acabou de ser reservado."}, status=409)
 
-    # 1. GERAR CÓDIGO AQUI
     codigo = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
     Appointment.objects.create(
@@ -214,8 +263,7 @@ def api_confirmar_agendamento(request, slug):
         cliente_whatsapp=data['whatsapp'],
         data=date_obj,
         hora_inicio=time_obj,
-        codigo_validacao=codigo # 2. SALVAR NO BANCO
+        codigo_validacao=codigo
     )
     
-    # 3. RETORNAR PARA O FRONTEND
     return JsonResponse({"ok": True, "codigo": codigo})

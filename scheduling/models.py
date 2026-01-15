@@ -21,8 +21,10 @@ class Professional(models.Model):
     nome = models.CharField(max_length=100)
     especialidade = models.CharField(max_length=100, blank=True, null=True)
     services = models.ManyToManyField(Service, related_name='professionals', blank=True)
-    # NOVO CAMPO
     foto = models.ImageField(upload_to='profissionais/', blank=True, null=True)
+    
+    # NOVO CAMPO: Para armazenar pausas como JSON (ex: almoço)
+    intervalos = models.JSONField(default=list, blank=True) 
     
     def __str__(self):
         return self.nome
@@ -33,6 +35,7 @@ class WorkingHour(models.Model):
     start_time = models.TimeField()
     end_time = models.TimeField()
 
+# Mantido para compatibilidade, mas a lógica nova usa o JSONField 'intervalos' acima
 class ProfessionalBreak(models.Model):
     professional = models.ForeignKey(Professional, on_delete=models.CASCADE, related_name="breaks")
     day_of_week = models.IntegerField()
@@ -46,13 +49,12 @@ class SpecialSchedule(models.Model):
     hora_inicio = models.TimeField(null=True, blank=True)
     hora_fim = models.TimeField(null=True, blank=True)
 
-# A CLASSE QUE ESTAVA FALTANDO ESTÁ AQUI ABAIXO:
 class Holiday(models.Model):
     salon = models.ForeignKey(Salon, on_delete=models.CASCADE)
     data = models.DateField()
     descricao = models.CharField(max_length=255)
     
-    # NOVOS CAMPOS: Se nulos, considera o dia todo.
+    # NOVOS CAMPOS: Para feriados parciais
     hora_inicio = models.TimeField(null=True, blank=True)
     hora_fim = models.TimeField(null=True, blank=True)
 
