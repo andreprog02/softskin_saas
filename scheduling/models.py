@@ -51,6 +51,10 @@ class Holiday(models.Model):
     salon = models.ForeignKey(Salon, on_delete=models.CASCADE)
     data = models.DateField()
     descricao = models.CharField(max_length=255)
+    
+    # NOVOS CAMPOS: Se nulos, considera o dia todo.
+    hora_inicio = models.TimeField(null=True, blank=True)
+    hora_fim = models.TimeField(null=True, blank=True)
 
 class Appointment(models.Model):
     salon = models.ForeignKey(Salon, on_delete=models.CASCADE)

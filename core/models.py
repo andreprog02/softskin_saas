@@ -16,6 +16,7 @@ class Salon(models.Model):
     intervalo_minutos = models.IntegerField(default=30)
     dias_fechados = models.CharField(max_length=50, default="0")
     ocultar_precos = models.BooleanField(default=False)
+    horarios_customizados = models.JSONField(default=dict, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 

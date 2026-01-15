@@ -109,3 +109,22 @@ class HolidaySerializer(serializers.ModelSerializer):
             )
 
         return data
+    
+    
+
+class HolidaySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Holiday
+        fields = '__all__'
+        read_only_fields = ['salon']
+
+    def validate(self, data):
+        # ... (lógica de validação existente) ...
+        
+        # NOVA VALIDAÇÃO
+        inicio = data.get('hora_inicio')
+        fim = data.get('hora_fim')
+        if inicio and fim and inicio >= fim:
+            raise serializers.ValidationError("A hora de início deve ser anterior ao fim.")
+            
+        return data

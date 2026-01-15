@@ -10,68 +10,77 @@ from scheduling.models import Service, Professional, Appointment, Holiday, Speci
 
 # --- FUNÇÃO AUXILIAR DE DISPONIBILIDADE ---
 def check_slot_availability(salao, prof, svc, date_obj, slot_time_obj):
-    # 1. Checa dia fechado do salão
-    weekday = date_obj.weekday()
-    if salao.dias_fechados and str(weekday) in salao.dias_fechados.split(','):
-        return False
-        
-    # 2. Checa Feriado
-    if Holiday.objects.filter(salon=salao, data=date_obj).exists():
+    weekday = str(date_obj.weekday()) # 0=Segunda, 6=Domingo
+
+    # 1. Checa dia fechado (Global)
+    if salao.dias_fechados and weekday in salao.dias_fechados.split(','):
         return False
 
-    # 3. Checa Folga Individual (Dia todo)
-    # Se houver qualquer registro de folga para esse dia SEM hora de início, bloqueia tudo.
-    if SpecialSchedule.objects.filter(salon=salao, professional=prof, data=date_obj, hora_inicio__isnull=True).exists():
-        return False
-
-    # --- DEFINIÇÃO DO SLOT (INÍCIO E FIM) ---
+    # 2. DEFINIÇÃO DO SLOT
     duration = svc.duracao_minutos if svc else salao.intervalo_minutos
     slot_start = slot_time_obj
     dummy_date = datetime(2000, 1, 1, slot_start.hour, slot_start.minute)
     slot_end_dt = dummy_date + timedelta(minutes=duration)
     slot_end = slot_end_dt.time()
-
+    
+    # Virada de dia não permitida
     if slot_end_dt.date() > dummy_date.date():
         return False
 
-    # 4. Checa Escala de Trabalho
-    work_hour = WorkingHour.objects.filter(professional=prof, day_of_week=weekday).first()
+    # 3. NOVO: Checa Horário de Funcionamento do Salão (Padrão ou Reduzido)
+    # Verifica se há um horário customizado para este dia da semana
+    abertura_salao = salao.hora_abertura_padrao
+    fechamento_salao = salao.hora_fechamento_padrao
+    
+    if salao.horarios_customizados and weekday in salao.horarios_customizados:
+        custom = salao.horarios_customizados[weekday]
+        if custom.get('inicio'):
+            abertura_salao = datetime.strptime(custom['inicio'], "%H:%M").time()
+        if custom.get('fim'):
+            fechamento_salao = datetime.strptime(custom['fim'], "%H:%M").time()
+    
+    # Se o agendamento cair fora do horário do salão, bloqueia
+    if slot_start < abertura_salao or slot_end > fechamento_salao:
+        return False
+
+    # 4. NOVO: Checa Feriado Global (Parcial ou Total)
+    feriados = Holiday.objects.filter(salon=salao, data=date_obj)
+    for f in feriados:
+        # Se não tiver hora definida, é feriado o dia todo
+        if not f.hora_inicio:
+            return False
+        
+        # Se for parcial, checa colisão: (FeriadoIni < SlotFim) E (FeriadoFim > SlotIni)
+        if slot_start < f.hora_fim and slot_end > f.hora_inicio:
+            return False
+
+    # 5. Checa Escala do Profissional (Mantido)
+    work_hour = WorkingHour.objects.filter(professional=prof, day_of_week=int(weekday)).first()
     if not work_hour:
         return False
-    
     if slot_start < work_hour.start_time or slot_end > work_hour.end_time:
         return False
 
-    # 5. Checa Folga Parcial
-    folgas_parciais = SpecialSchedule.objects.filter(
-        salon=salao, 
-        professional=prof, 
-        data=date_obj, 
-        hora_inicio__isnull=False
-    )
+    # 6. Checa Folga Individual do Profissional (Mantido)
+    if SpecialSchedule.objects.filter(salon=salao, professional=prof, data=date_obj, hora_inicio__isnull=True).exists():
+        return False
+        
+    folgas_parciais = SpecialSchedule.objects.filter(salon=salao, professional=prof, data=date_obj, hora_inicio__isnull=False)
     for folga in folgas_parciais:
         if (slot_start < folga.hora_fim and slot_end > folga.hora_inicio):
             return False
 
-    # 6. Checa Intervalos de Pausa
-    breaks = ProfessionalBreak.objects.filter(professional=prof, day_of_week=weekday)
-    for b in breaks:
-        if (slot_start < b.end_time and slot_end > b.start_time):
-            return False
-
-    # 7. Checa Agendamentos Existentes
+    # 7. Checa Agendamentos Existentes (Mantido)
     appointments = Appointment.objects.filter(professional=prof, data=date_obj)
     for appt in appointments:
         appt_duration = appt.service.duracao_minutos if appt.service else salao.intervalo_minutos
-        appt_start = appt.hora_inicio
-        appt_dummy = datetime(2000, 1, 1, appt_start.hour, appt_start.minute)
+        appt_dummy = datetime(2000, 1, 1, appt.hora_inicio.hour, appt.hora_inicio.minute)
         appt_end = (appt_dummy + timedelta(minutes=appt_duration)).time()
         
-        if (slot_start < appt_end and slot_end > appt_start):
+        if (slot_start < appt_end and slot_end > appt.hora_inicio):
             return False
             
     return True
-
 # --- VIEWS ---
 
 def pagina_agendamento(request, slug):

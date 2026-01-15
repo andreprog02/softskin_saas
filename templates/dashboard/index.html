@@ -221,6 +221,11 @@
                             <label class="cursor-pointer select-none"><input type="checkbox" class="diaFechado check-dia hidden peer" value="5"><span class="px-4 py-2 rounded-xl border border-slate-200 text-slate-500 font-bold transition-all peer-checked:bg-theme peer-checked:text-white peer-checked:border-transparent">Sábado</span></label>
                             <label class="cursor-pointer select-none"><input type="checkbox" class="diaFechado check-dia hidden peer" value="6"><span class="px-4 py-2 rounded-xl border border-slate-200 text-slate-500 font-bold transition-all peer-checked:bg-theme peer-checked:text-white peer-checked:border-transparent">Domingo</span></label>
                         </div>
+
+                        <hr class="my-4 border-slate-100">
+                        <h4 class="font-bold text-slate-700 mb-2">Horários Personalizados (Ex: Sábado reduzido)</h4>
+                        <div id="lista-horarios-custom" class="space-y-2"></div>
+                        <textarea id="horarios_custom_json" class="hidden">{{ salao.horarios_customizados|default:'{}'|safe }}</textarea>
                     </div>
                 </div>
              </div>
@@ -365,7 +370,32 @@
         </div>
     </div>
 
-    <div id="modal-feriado" class="hidden fixed inset-0 z-50 flex items-center justify-center"><div class="absolute inset-0 modal-backdrop" onclick="document.getElementById('modal-feriado').classList.add('hidden')"></div><div class="modal-content relative bg-white w-full max-w-sm rounded-2xl shadow-xl z-10 overflow-hidden"><div class="bg-theme p-4 text-white flex justify-between items-center"><h3 class="font-bold text-lg" id="titulo-modal-feriado">Novo Feriado</h3><button onclick="document.getElementById('modal-feriado').classList.add('hidden')"><i data-lucide="x" class="w-5 h-5"></i></button></div><div class="p-6"><input type="hidden" id="mf_id"><input type="date" id="mf_data" class="input-field mb-3"><input type="text" id="mf_desc" class="input-field mb-4" placeholder="Descrição (ex: Natal)"><button onclick="salvarNovoFeriado()" class="w-full bg-theme text-white py-2 rounded-xl font-bold">Salvar</button></div></div></div>
+    <div id="modal-feriado" class="hidden fixed inset-0 z-50 flex items-center justify-center">
+        <div class="absolute inset-0 modal-backdrop" onclick="document.getElementById('modal-feriado').classList.add('hidden')"></div>
+        <div class="modal-content relative bg-white w-full max-w-sm rounded-2xl shadow-xl z-10 overflow-hidden">
+            <div class="bg-theme p-4 text-white flex justify-between items-center">
+                <h3 class="font-bold text-lg" id="titulo-modal-feriado">Novo Feriado</h3>
+                <button onclick="document.getElementById('modal-feriado').classList.add('hidden')"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="p-6">
+                <input type="hidden" id="mf_id">
+                <input type="date" id="mf_data" class="input-field mb-3">
+                <input type="text" id="mf_desc" class="input-field mb-3" placeholder="Descrição (ex: Natal)">
+                
+                <div class="flex items-center justify-between mb-3 border-t pt-3">
+                    <span class="text-sm font-bold text-slate-700">O dia todo?</span>
+                    <input type="checkbox" id="mf_diatodo" class="w-5 h-5 accent-theme" onchange="toggleFeriadoDiaTodo()" checked>
+                </div>
+                
+                <div id="container-horas-feriado" class="grid grid-cols-2 gap-3 opacity-50 pointer-events-none mb-4">
+                    <div><label class="text-xs text-slate-500">Início Fechamento</label><input type="time" id="mf_ini" class="input-field"></div>
+                    <div><label class="text-xs text-slate-500">Fim Fechamento</label><input type="time" id="mf_fim" class="input-field"></div>
+                </div>
+                
+                <button onclick="salvarNovoFeriado()" class="w-full bg-theme text-white py-2 rounded-xl font-bold">Salvar</button>
+            </div>
+        </div>
+    </div>
 
     <div id="modal-folga" class="hidden fixed inset-0 z-50 flex items-center justify-center"><div class="absolute inset-0 modal-backdrop" onclick="document.getElementById('modal-folga').classList.add('hidden')"></div><div class="modal-content relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden z-10 m-4"><div class="bg-theme p-5 text-white flex justify-between items-center"><h3 class="font-bold text-lg" id="titulo-modal-folga">Folga</h3><button onclick="document.getElementById('modal-folga').classList.add('hidden')"><i data-lucide="x" class="w-6 h-6"></i></button></div><div class="p-6 space-y-4"><input type="hidden" id="mfo_id"><div><label class="text-sm font-bold text-slate-700">Profissional</label><select id="mfo_prof" class="input-field mt-1"></select></div><div><label class="text-sm font-bold text-slate-700">Data</label><input type="date" id="mfo_data" class="input-field mt-1"></div><div class="flex items-center justify-between"><span class="text-sm font-bold text-slate-700">Dia Inteiro?</span><input type="checkbox" id="mfo_diatodo" class="w-5 h-5 accent-theme" onchange="toggleFolgaDiaTodo()" checked></div><div id="container-horas-folga" class="grid grid-cols-2 gap-3 opacity-50 pointer-events-none"><div><label class="text-xs text-slate-500">Início</label><input type="time" id="mfo_ini" class="input-field"></div><div><label class="text-xs text-slate-500">Fim</label><input type="time" id="mfo_fim" class="input-field"></div></div><button onclick="salvarNovaFolga()" class="w-full bg-theme text-white font-bold py-3 rounded-xl hover:opacity-90 mt-2">Salvar Folga</button></div></div></div>
 
@@ -426,6 +456,7 @@ function fecharModalErro() {
     
     let currentProfIntervals = [];
     let eventSource;
+    const diasSemana = ["Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado", "Domingo"];
 
     // 2. HELPER DE COOKIE (CSRF)
     function getCookie(name) {
@@ -443,7 +474,7 @@ function fecharModalErro() {
         return cookieValue;
     }
 
-    // 3. FUNÇÃO REQUEST (CORRIGIDA PARA STATUS 204 E TRAILING SLASH)
+    // 3. FUNÇÃO REQUEST
     async function request(url, method, body) {
     if (!url.endsWith('/') && !url.includes('?')) { url += '/'; }
     const headers = { 'Content-Type': 'application/json' };
@@ -549,13 +580,52 @@ function fecharModalErro() {
     }
 
     function renderListasAusencias(){
-        document.getElementById('listaFeriados').innerHTML = FERIADOS.map(f=>`<div class="flex justify-between py-2 border-b"><span>${formatDate(f.data)} - ${f.descricao}</span><div class="flex gap-2"><button onclick="abrirModalFeriado(${f.id})" class="text-blue-500 p-1"><i data-lucide="edit-2" class="w-4 h-4"></i></button><button onclick="confirmarExclusao('feriados',${f.id})" class="text-red-500 p-1"><i data-lucide="trash" class="w-4 h-4"></i></button></div></div>`).join('');
+        document.getElementById('listaFeriados').innerHTML = FERIADOS.map(f=>{
+            const periodo = (!f.hora_inicio) ? 'Dia todo' : `${f.hora_inicio.slice(0,5)} - ${f.hora_fim.slice(0,5)}`;
+            return `<div class="flex justify-between py-2 border-b">
+                <div>
+                    <span class="block">${formatDate(f.data)} - ${f.descricao}</span>
+                    ${!f.hora_inicio ? '' : `<span class="text-xs text-orange-500 font-bold">Parcial: ${periodo}</span>`}
+                </div>
+                <div class="flex gap-2"><button onclick="abrirModalFeriado(${f.id})" class="text-blue-500 p-1"><i data-lucide="edit-2" class="w-4 h-4"></i></button><button onclick="confirmarExclusao('feriados',${f.id})" class="text-red-500 p-1"><i data-lucide="trash" class="w-4 h-4"></i></button></div>
+            </div>`;
+        }).join('');
         
         document.getElementById('listaFolgas').innerHTML = FOLGAS.map(f=>{ 
             const p=PROFISSIONAIS.find(x => x.id == (f.professional_id || f.professional));
             const periodo = (!f.hora_inicio) ? 'Dia todo' : `${f.hora_inicio.slice(0,5)} - ${f.hora_fim.slice(0,5)}`;
             return `<div class="grid grid-cols-4 items-center border-b border-slate-50 py-3 text-sm"><div class="col-span-2"><span class="font-bold block">${p?p.nome:'?'}</span><span class="text-xs text-slate-500">${formatDate(f.data)}</span></div><div>${periodo}</div><div class="text-right"><button onclick="abrirModalFolga(${f.id})" class="text-blue-500 mr-2"><i data-lucide="edit-3" class="w-4 h-4"></i></button><button onclick="confirmarExclusao('folgas-individuais',${f.id})" class="text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div></div>`; 
         }).join('');
+    }
+
+    // --- NOVA FUNÇÃO DE RENDERIZAR HORÁRIOS CUSTOM ---
+    function renderHorariosCustom(){
+        const container = document.getElementById('lista-horarios-custom');
+        let currentData = {};
+        try { currentData = JSON.parse(document.getElementById('horarios_custom_json').value); } catch(e){}
+
+        let html = '';
+        diasSemana.forEach((dia, index) => {
+            const isClosed = document.querySelector(`.diaFechado[value="${index}"]`).checked;
+            if(isClosed) return;
+
+            const val = currentData[index] || {};
+            const ini = val.inicio || document.getElementById('horaAbertura').value;
+            const fim = val.fim || document.getElementById('horaFechamento').value;
+
+            html += `
+            <div class="flex items-center justify-between bg-slate-50 p-2 rounded-lg text-sm">
+                <span class="font-bold text-slate-600 w-24">${dia}</span>
+                <div class="flex gap-2">
+                    <input type="time" class="hc-inicio input-field !py-1 !text-xs w-24" data-day="${index}" value="${ini}">
+                    <span class="self-center text-slate-400">-</span>
+                    <input type="time" class="hc-fim input-field !py-1 !text-xs w-24" data-day="${index}" value="${fim}">
+                </div>
+            </div>`;
+        });
+        
+        if(html === '') html = '<p class="text-xs text-slate-400 italic">Desmarque dias fechados para configurar horários específicos.</p>';
+        container.innerHTML = html;
     }
 
     // --- LÓGICA DE EXCLUSÃO BLINDADA (Previne 404 por clique duplo) ---
@@ -743,8 +813,49 @@ function fecharModalErro() {
     function addIntervalo(){ const i=document.getElementById('mp_int_ini').value, f=document.getElementById('mp_int_fim').value; if(i&&f){ currentProfIntervals.push({start:i,end:f}); renderIntervalos(); } }
     function renderIntervalos(){ document.getElementById('lista_intervalos').innerHTML=currentProfIntervals.map((x,i)=>`<div class="flex justify-between items-center bg-white border p-2 rounded text-sm"><span>${x.start} - ${x.end}</span><button onclick="currentProfIntervals.splice(${i},1);renderIntervalos()" class="text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div>`).join(''); lucide.createIcons(); }
 
-    function abrirModalFeriado(id=null){ const f = id ? FERIADOS.find(x=>x.id==id) : null; document.getElementById('modal-feriado').classList.remove('hidden'); document.getElementById('titulo-modal-feriado').innerText=f?'Editar Feriado':'Novo Feriado'; document.getElementById('mf_id').value=f?f.id:''; document.getElementById('mf_data').value=f?f.data:''; document.getElementById('mf_desc').value=f?f.descricao:''; }
-    async function salvarNovoFeriado(){ const p={data:document.getElementById('mf_data').value, descricao:document.getElementById('mf_desc').value}, id=document.getElementById('mf_id').value; if(id) await request(`/api/v1/feriados/${id}/`, 'PUT', p); else await request('/api/v1/feriados/','POST', p); location.reload(); }
+    // --- FERIADO ATUALIZADO ---
+    function abrirModalFeriado(id=null){ 
+        const f = id ? FERIADOS.find(x=>x.id==id) : null; 
+        document.getElementById('modal-feriado').classList.remove('hidden'); 
+        document.getElementById('titulo-modal-feriado').innerText = f ? 'Editar Feriado' : 'Novo Feriado'; 
+        document.getElementById('mf_id').value = f ? f.id : ''; 
+        document.getElementById('mf_data').value = f ? f.data : ''; 
+        document.getElementById('mf_desc').value = f ? f.descricao : '';
+        
+        // Lógica Dia Todo vs Parcial
+        const diaTodo = !f || !f.hora_inicio;
+        document.getElementById('mf_diatodo').checked = diaTodo;
+        if(!diaTodo){
+            document.getElementById('mf_ini').value = f.hora_inicio;
+            document.getElementById('mf_fim').value = f.hora_fim;
+        } else {
+            document.getElementById('mf_ini').value = '';
+            document.getElementById('mf_fim').value = '';
+        }
+        toggleFeriadoDiaTodo();
+    }
+    
+    function toggleFeriadoDiaTodo(){ 
+        const c = document.getElementById('mf_diatodo').checked;
+        const div = document.getElementById('container-horas-feriado'); 
+        if(c) div.classList.add('opacity-50','pointer-events-none'); 
+        else div.classList.remove('opacity-50','pointer-events-none'); 
+    }
+
+    async function salvarNovoFeriado(){ 
+        const dt = document.getElementById('mf_diatodo').checked;
+        const p = {
+            data: document.getElementById('mf_data').value, 
+            descricao: document.getElementById('mf_desc').value,
+            hora_inicio: dt ? null : document.getElementById('mf_ini').value,
+            hora_fim: dt ? null : document.getElementById('mf_fim').value
+        }; 
+        const id = document.getElementById('mf_id').value; 
+        
+        if(id) await request(`/api/v1/feriados/${id}/`, 'PUT', p); 
+        else await request('/api/v1/feriados/','POST', p); 
+        location.reload(); 
+    }
 
     function abrirModalFolga(id=null){
         const f = id ? FOLGAS.find(x=>x.id==id) : null;
@@ -761,7 +872,43 @@ function fecharModalErro() {
     function abrirModalLogout(){ document.getElementById('modal-logout').classList.remove('hidden'); }
     function copiarLink(){ navigator.clipboard.writeText(`${window.location.origin}/agendar/${SALON_SLUG}`); showToast('Link copiado!'); }
     function mudarCor(c){ request(`/api/v1/saloes/${SALON_ID}`, 'PUT', {cor_do_tema:c}).then(()=>location.reload()); }
-    async function salvarConfigGeral(){ const end = {cep:document.getElementById('cep').value, logradouro:document.getElementById('logradouro').value, numero:document.getElementById('numero').value, complemento:document.getElementById('complemento').value, bairro:document.getElementById('bairro').value, cidade:document.getElementById('cidade').value}; const p={nome:document.getElementById('cfg_nome').value, cnpj_cpf:document.getElementById('cfg_doc').value, telefone:document.getElementById('cfg_tel').value, endereco:JSON.stringify(end), hora_abertura_padrao:document.getElementById('horaAbertura').value, hora_fechamento_padrao:document.getElementById('horaFechamento').value, intervalo_minutos:parseInt(document.getElementById('intervaloMinutos').value), dias_fechados:Array.from(document.querySelectorAll('.diaFechado:checked')).map(x=>x.value).join(','), ocultar_precos:document.getElementById('cfg_ocultar_precos').checked}; await request(`/api/v1/saloes/${SALON_ID}`, 'PUT', p); showToast('Salvo!'); }
+    
+    // --- SALVAR CONFIG GERAL ATUALIZADO ---
+    async function salvarConfigGeral(){ 
+        const end = {cep:document.getElementById('cep').value, logradouro:document.getElementById('logradouro').value, numero:document.getElementById('numero').value, complemento:document.getElementById('complemento').value, bairro:document.getElementById('bairro').value, cidade:document.getElementById('cidade').value}; 
+        
+        // Coleta Horários Customizados
+        let hCustom = {};
+        document.querySelectorAll('.hc-inicio').forEach(inp => {
+            const d = inp.dataset.day;
+            const inicio = inp.value;
+            const fim = document.querySelector(`.hc-fim[data-day="${d}"]`).value;
+            const padraoIni = document.getElementById('horaAbertura').value;
+            const padraoFim = document.getElementById('horaFechamento').value;
+            
+            // Só salva se for diferente do padrão
+            if(inicio !== padraoIni || fim !== padraoFim){
+                hCustom[d] = { inicio: inicio, fim: fim };
+            }
+        });
+
+        const p={
+            nome: document.getElementById('cfg_nome').value, 
+            cnpj_cpf: document.getElementById('cfg_doc').value, 
+            telefone: document.getElementById('cfg_tel').value, 
+            endereco: JSON.stringify(end), 
+            hora_abertura_padrao: document.getElementById('horaAbertura').value, 
+            hora_fechamento_padrao: document.getElementById('horaFechamento').value, 
+            intervalo_minutos: parseInt(document.getElementById('intervaloMinutos').value), 
+            dias_fechados: Array.from(document.querySelectorAll('.diaFechado:checked')).map(x=>x.value).join(','), 
+            ocultar_precos: document.getElementById('cfg_ocultar_precos').checked,
+            horarios_customizados: hCustom
+        }; 
+        
+        await request(`/api/v1/saloes/${SALON_ID}`, 'PUT', p); 
+        showToast('Salvo!'); 
+    }
+
     async function buscarCep(){ const cep=document.getElementById('cep').value.replace(/\D/g,''); if(cep.length===8){ try{ const r=await fetch(`https://viacep.com.br/ws/${cep}/json/`); const d=await r.json(); if(!d.erro){ document.getElementById('logradouro').value=d.logradouro; document.getElementById('bairro').value=d.bairro; document.getElementById('cidade').value=`${d.localidade}/${d.uf}`; } }catch(e){} } }
     
     function filtrarAgenda(){ const dt=document.getElementById('filtroData').value, pr=document.getElementById('filtroProfissional').value; let c=0; document.querySelectorAll('.linha-agendamento').forEach(r=>{ const md=!dt||r.dataset.date==dt, mp=!pr||r.dataset.prof==pr; if(md&&mp){ r.style.display=''; c++; } else r.style.display='none'; }); document.getElementById('msgSemResultados').classList.toggle('hidden', c>0); }
@@ -810,6 +957,13 @@ function fecharModalErro() {
         const selFiltro = document.getElementById('filtroProfissional'); PROFISSIONAIS.forEach(p=>selFiltro.innerHTML+=`<option value="${p.id}">${p.nome}</option>`);
         try { const e = JSON.parse(document.getElementById('endereco_full').value); document.getElementById('cep').value=e.cep||''; document.getElementById('logradouro').value=e.logradouro||''; document.getElementById('numero').value=e.numero||''; document.getElementById('complemento').value=e.complemento||''; document.getElementById('bairro').value=e.bairro||''; document.getElementById('cidade').value=e.cidade||''; } catch(e){}
         "{{ salao.dias_fechados }}".split(',').forEach(d=>{ const cb=document.querySelector(`.diaFechado[value="${d}"]`); if(cb) cb.checked=true; });
+        
+        // Listeners para atualizar os horários customizados ao mudar dias fechados
+        document.querySelectorAll('.diaFechado').forEach(cb => {
+            cb.addEventListener('change', renderHorariosCustom);
+        });
+        renderHorariosCustom(); // Renderiza inicial
+
         new QRCode(document.getElementById("qrcode"), {text: window.location.origin + "/agendar/{{ salao.slug }}", width: 64, height: 64});
         lucide.createIcons();
         const urlParams = new URLSearchParams(window.location.search); switchTab(urlParams.get('tab') || 'agenda');

@@ -224,7 +224,7 @@ def api_configuracoes(request, salon_id):
         return Response({"error": "Forbidden"}, status=403)
     
     data = request.data
-    allowed = ["nome", "cnpj_cpf", "telefone", "hora_abertura_padrao", "hora_fechamento_padrao", "intervalo_minutos", "dias_fechados", "cor_do_tema", "ocultar_precos", "endereco"]
+    allowed = ["nome", "cnpj_cpf", "telefone", "hora_abertura_padrao", "hora_fechamento_padrao", "intervalo_minutos", "dias_fechados", "cor_do_tema", "ocultar_precos", "endereco", "horarios_customizados"]
     
     for k, v in data.items():
         if k in allowed:
