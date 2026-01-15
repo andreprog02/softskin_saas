@@ -26,6 +26,12 @@ def check_slot_availability(salao, prof, svc, date_obj, slot_time_obj):
     # Bloqueia virada de dia (ex: serviço começando 23:50)
     if slot_end_dt.date() > dummy_date.date():
         return False
+    
+
+    # --- TRAVA DE SEGURANÇA: O profissional faz esse serviço? ---
+    if not prof.services.filter(id=svc.id).exists():
+        return False
+
 
     # 2. DIA FECHADO GLOBAL
     if salao.dias_fechados and weekday in salao.dias_fechados.split(','):
