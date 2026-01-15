@@ -21,7 +21,8 @@ urlpatterns = [
     path('events/stream', views.sse_updates, name='sse_stream'),
 
     # 3. API de Configuração (Mantida manual pois é específica)
-    path('saloes/<int:salon_id>', views.api_configuracoes, name='api_config'),
+    # Adicionamos a barra '/' logo após <int:salon_id>
+    path('saloes/<int:salon_id>/', views.api_configuracoes, name='api_config'),
 
     # 4. Inclui todas as rotas mágicas do Router
     # Isso cobre URLs como: /servicos/, /profissionais/1/, etc.

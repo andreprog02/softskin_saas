@@ -369,7 +369,51 @@
 
     <div id="modal-folga" class="hidden fixed inset-0 z-50 flex items-center justify-center"><div class="absolute inset-0 modal-backdrop" onclick="document.getElementById('modal-folga').classList.add('hidden')"></div><div class="modal-content relative bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden z-10 m-4"><div class="bg-theme p-5 text-white flex justify-between items-center"><h3 class="font-bold text-lg" id="titulo-modal-folga">Folga</h3><button onclick="document.getElementById('modal-folga').classList.add('hidden')"><i data-lucide="x" class="w-6 h-6"></i></button></div><div class="p-6 space-y-4"><input type="hidden" id="mfo_id"><div><label class="text-sm font-bold text-slate-700">Profissional</label><select id="mfo_prof" class="input-field mt-1"></select></div><div><label class="text-sm font-bold text-slate-700">Data</label><input type="date" id="mfo_data" class="input-field mt-1"></div><div class="flex items-center justify-between"><span class="text-sm font-bold text-slate-700">Dia Inteiro?</span><input type="checkbox" id="mfo_diatodo" class="w-5 h-5 accent-theme" onchange="toggleFolgaDiaTodo()" checked></div><div id="container-horas-folga" class="grid grid-cols-2 gap-3 opacity-50 pointer-events-none"><div><label class="text-xs text-slate-500">Início</label><input type="time" id="mfo_ini" class="input-field"></div><div><label class="text-xs text-slate-500">Fim</label><input type="time" id="mfo_fim" class="input-field"></div></div><button onclick="salvarNovaFolga()" class="w-full bg-theme text-white font-bold py-3 rounded-xl hover:opacity-90 mt-2">Salvar Folga</button></div></div></div>
 
+<div id="modal-erro-api" class="hidden fixed inset-0 z-[70] flex items-center justify-center">
+    <div class="absolute inset-0 modal-backdrop" onclick="fecharModalErro()"></div>
+    <div class="modal-content relative bg-white w-full max-w-sm rounded-2xl shadow-2xl overflow-hidden z-10 m-4">
+        
+        <div class="bg-theme p-5 text-white flex justify-between items-center">
+            <h3 class="font-bold text-lg flex items-center gap-2">
+                <i data-lucide="alert-circle" class="w-6 h-6"></i> Atenção
+            </h3>
+            <button onclick="fecharModalErro()" class="hover:bg-white/20 p-1 rounded-full transition">
+                <i data-lucide="x" class="w-6 h-6"></i>
+            </button>
+        </div>
+
+        <div class="p-8 text-center">
+            <p id="msg-erro-api" class="text-slate-600 mb-8 leading-relaxed font-medium text-lg">
+                Ocorreu um erro.
+            </p>
+            
+            <button onclick="fecharModalErro()" class="w-full bg-theme text-white font-bold py-3.5 rounded-xl shadow-lg hover:opacity-90 transition transform active:scale-95">
+                Entendi
+            </button>
+        </div>
+    </div>
+</div>
+
+
 <script>
+
+    // Função para exibir o modal de erro bonito
+function mostrarErroApi(msg) {
+    // Tenta limpar a mensagem se ela vier como array de lista do Python (ex: ['Erro'])
+    let texto = msg;
+    if (Array.isArray(msg)) texto = msg[0];
+    
+    // Remove caracteres de JSON se sobrarem
+    texto = texto.replace(/[\[\]"]/g, '');
+
+    document.getElementById('msg-erro-api').innerText = texto;
+    document.getElementById('modal-erro-api').classList.remove('hidden');
+    lucide.createIcons();
+}
+
+function fecharModalErro() {
+    document.getElementById('modal-erro-api').classList.add('hidden');
+}
     // 1. DADOS DJANGO
     const SERVICOS = JSON.parse(document.getElementById('d-servicos').textContent);
     const PROFISSIONAIS = JSON.parse(document.getElementById('d-profissionais').textContent);
@@ -401,48 +445,62 @@
 
     // 3. FUNÇÃO REQUEST (CORRIGIDA PARA STATUS 204 E TRAILING SLASH)
     async function request(url, method, body) {
-        // Adiciona trailing slash se faltar
-        if (!url.endsWith('/') && !url.includes('?')) {
-            url += '/';
-        }
-
-        const headers = { 'Content-Type': 'application/json' };
-        
-        // CSRF Token
-        if (method !== 'GET') {
-            headers['X-CSRFToken'] = getCookie('csrftoken'); 
-        }
-        
-        const config = { method, headers };
-
-        // Tratamento de FormData vs JSON
-        if (body) {
-            if (body instanceof FormData) {
-                delete headers['Content-Type']; // O browser define o boundary
-                config.body = body;
-            } else {
-                config.body = JSON.stringify(body);
-            }
-        }
-        
-        try {
-            const r = await fetch(url, config);
-            
-            if (r.ok) {
-                // CORREÇÃO CRÍTICA: Se for 204 (Sem Conteúdo), não tenta ler JSON
-                if (r.status === 204) return null; 
-                return await r.json();
-            }
-            
-            const txt = await r.text();
-            throw new Error(txt || "Erro desconhecido no servidor");
-        } catch (e) {
-            console.error(e);
-            alert("Erro na operação: " + e.message);
-            throw e; 
+    if (!url.endsWith('/') && !url.includes('?')) { url += '/'; }
+    const headers = { 'Content-Type': 'application/json' };
+    if (method !== 'GET') { headers['X-CSRFToken'] = getCookie('csrftoken'); }
+    
+    const config = { method, headers };
+    if (body) {
+        if (body instanceof FormData) {
+            delete headers['Content-Type'];
+            config.body = body;
+        } else {
+            config.body = JSON.stringify(body);
         }
     }
+    
+    try {
+        const r = await fetch(url, config);
+        
+        if (r.ok) {
+            if (r.status === 204) return null;
+            return await r.json();
+        }
+        
+        // --- TRATAMENTO DE ERRO MELHORADO ---
+        const txt = await r.text();
+        let errorMsg = "Ocorreu um erro desconhecido.";
+        
+        try {
+            // Tenta ler o JSON de erro do Django REST Framework
+            const json = JSON.parse(txt);
+            if (Array.isArray(json)) {
+                errorMsg = json[0]; // Erros gerais
+            } else if (json.detail) {
+                errorMsg = json.detail; // Erros de permissão/auth
+            } else if (json.non_field_errors) {
+                errorMsg = json.non_field_errors[0]; // Erros de validação global
+            } else {
+                // Pega o primeiro erro do primeiro campo que falhou
+                const keys = Object.keys(json);
+                if (keys.length > 0) {
+                    const firstError = json[keys[0]];
+                    errorMsg = Array.isArray(firstError) ? firstError[0] : firstError;
+                }
+            }
+        } catch (e) {
+            errorMsg = txt; // Fallback se não for JSON
+        }
+        
+        throw new Error(errorMsg);
 
+    } catch (e) {
+        console.error(e);
+        // AQUI CHAMAMOS O NOVO MODAL BONITO
+        mostrarErroApi(e.message);
+        throw e;
+    }
+}
     // 4. UI LOGIC
     function switchTab(t){ document.querySelectorAll('.tab-content').forEach(e=>e.classList.add('hidden')); document.getElementById('tab-'+t).classList.remove('hidden'); document.querySelectorAll('.sidebar-link').forEach(e=>e.classList.remove('active')); document.getElementById('btn-'+t).classList.add('active'); history.pushState({},'',`?tab=${t}`); }
     function showToast(m){ const x=document.getElementById('toast'); document.getElementById('toastMsg').innerText=m; x.classList.add('show'); setTimeout(()=>x.classList.remove('show'),3000); }
@@ -494,7 +552,7 @@
         document.getElementById('listaFeriados').innerHTML = FERIADOS.map(f=>`<div class="flex justify-between py-2 border-b"><span>${formatDate(f.data)} - ${f.descricao}</span><div class="flex gap-2"><button onclick="abrirModalFeriado(${f.id})" class="text-blue-500 p-1"><i data-lucide="edit-2" class="w-4 h-4"></i></button><button onclick="confirmarExclusao('feriados',${f.id})" class="text-red-500 p-1"><i data-lucide="trash" class="w-4 h-4"></i></button></div></div>`).join('');
         
         document.getElementById('listaFolgas').innerHTML = FOLGAS.map(f=>{ 
-            const p=PROFISSIONAIS.find(x=>x.id==f.professional_id); 
+            const p=PROFISSIONAIS.find(x => x.id == (f.professional_id || f.professional));
             const periodo = (!f.hora_inicio) ? 'Dia todo' : `${f.hora_inicio.slice(0,5)} - ${f.hora_fim.slice(0,5)}`;
             return `<div class="grid grid-cols-4 items-center border-b border-slate-50 py-3 text-sm"><div class="col-span-2"><span class="font-bold block">${p?p.nome:'?'}</span><span class="text-xs text-slate-500">${formatDate(f.data)}</span></div><div>${periodo}</div><div class="text-right"><button onclick="abrirModalFolga(${f.id})" class="text-blue-500 mr-2"><i data-lucide="edit-3" class="w-4 h-4"></i></button><button onclick="confirmarExclusao('folgas-individuais',${f.id})" class="text-red-500"><i data-lucide="trash-2" class="w-4 h-4"></i></button></div></div>`; 
         }).join('');
@@ -652,7 +710,8 @@
         document.getElementById('modal-servico').classList.remove('hidden'); 
         document.getElementById('ms_id').value=id||''; 
         document.getElementById('ms_nome').value=s?s.nome:''; 
-        document.getElementById('ms_preco').value=s?s.preco.toLocaleString('pt-BR',{minimumFractionDigits:2}):'';
+        // Adicionamos parseFloat(s.preco) para garantir que é número antes de formatar
+        document.getElementById('ms_preco').value=s?parseFloat(s.preco).toLocaleString('pt-BR',{minimumFractionDigits:2}):'';
         document.getElementById('ms_duracao').value=s?s.duracao_minutos:''; 
         const sel=document.getElementById('ms_cat'); sel.innerHTML='<option value="">Sem Categoria</option>'; 
         CATEGORIAS.forEach(c=>sel.innerHTML+=`<option value="${c.id}" ${s&&s.category_id==c.id?'selected':''}>${c.nome}</option>`); 
@@ -690,14 +749,14 @@
     function abrirModalFolga(id=null){
         const f = id ? FOLGAS.find(x=>x.id==id) : null;
         document.getElementById('modal-folga').classList.remove('hidden'); document.getElementById('titulo-modal-folga').innerText=f?'Editar Folga':'Nova Folga';
-        const sel=document.getElementById('mfo_prof'); sel.innerHTML='<option value="">Selecione...</option>'; PROFISSIONAIS.forEach(p=>sel.innerHTML+=`<option value="${p.id}" ${f&&f.professional_id==p.id?'selected':''}>${p.nome}</option>`);
+        const sel=document.getElementById('mfo_prof'); sel.innerHTML='<option value="">Selecione...</option>'; PROFISSIONAIS.forEach(p=>sel.innerHTML+=`<option value="${p.id}" ${f&&f.professional==p.id?'selected':''}>${p.nome}</option>`);
         document.getElementById('mfo_id').value=f?f.id:''; document.getElementById('mfo_data').value=f?f.data:''; 
         const diaTodo = !f || !f.hora_inicio;
         document.getElementById('mfo_diatodo').checked=diaTodo; toggleFolgaDiaTodo();
         if(!diaTodo){ document.getElementById('mfo_ini').value=f.hora_inicio; document.getElementById('mfo_fim').value=f.hora_fim; }
     }
     function toggleFolgaDiaTodo(){ const c=document.getElementById('mfo_diatodo').checked, div=document.getElementById('container-horas-folga'); if(c) div.classList.add('opacity-50','pointer-events-none'); else div.classList.remove('opacity-50','pointer-events-none'); }
-    async function salvarNovaFolga(){ const dt=document.getElementById('mfo_diatodo').checked; const p={professional_id:document.getElementById('mfo_prof').value, data:document.getElementById('mfo_data').value, hora_inicio:dt?null:document.getElementById('mfo_ini').value, hora_fim:dt?null:document.getElementById('mfo_fim').value}, id=document.getElementById('mfo_id').value; if(id) await request(`/api/v1/folgas-individuais/${id}/`, 'PUT', p); else await request('/api/v1/folgas-individuais/', 'POST', p); location.reload(); }
+    async function salvarNovaFolga(){ const dt=document.getElementById('mfo_diatodo').checked; const p={professional:document.getElementById('mfo_prof').value, data:document.getElementById('mfo_data').value, hora_inicio:dt?null:document.getElementById('mfo_ini').value, hora_fim:dt?null:document.getElementById('mfo_fim').value}, id=document.getElementById('mfo_id').value; if(id) await request(`/api/v1/folgas-individuais/${id}/`, 'PUT', p); else await request('/api/v1/folgas-individuais/', 'POST', p); location.reload(); }
 
     function abrirModalLogout(){ document.getElementById('modal-logout').classList.remove('hidden'); }
     function copiarLink(){ navigator.clipboard.writeText(`${window.location.origin}/agendar/${SALON_SLUG}`); showToast('Link copiado!'); }
