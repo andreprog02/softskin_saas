@@ -7,6 +7,8 @@
 
 {# --- DADOS SEGUROS --- #}
 {{ servicos|json_script:"SERVICOS_JSON" }}
+{# A LINHA ABAIXO É OBRIGATÓRIA PARA O FILTRO FUNCIONAR #}
+{{ profissionais|json_script:"PROFISSIONAIS_JSON" }}
 {{ feriados|default:"[]"|json_script:"FERIADOS_JSON" }}
 {{ folgas|default:"[]"|json_script:"FOLGAS_JSON" }}
 {{ dias_fechados|default:"[]"|json_script:"DIAS_FECHADOS_JSON" }}
@@ -151,7 +153,6 @@
                         {% if categorias %}
                         <div class="mb-6 overflow-x-auto no-scrollbar py-2 -mx-2 px-2">
                             <div class="flex gap-2">
-                                <button data-click="filtrarCategoria" data-id="todas" class="cat-btn active border border-gray-200 px-5 py-2.5 rounded-full text-sm font-bold text-gray-500 whitespace-nowrap hover:bg-gray-50">Todos</button>
                                 {% for cat in categorias %}
                                 <button data-click="filtrarCategoria" data-id="{{ cat.id }}" class="cat-btn border border-gray-200 px-5 py-2.5 rounded-full text-sm font-bold text-gray-500 whitespace-nowrap hover:bg-gray-50">{{ cat.nome }}</button>
                                 {% endfor %}
@@ -265,6 +266,7 @@
         }
 
         const SERVICOS = getJsonData('SERVICOS_JSON');
+        const PROFISSIONAIS_ALL = getJsonData('PROFISSIONAIS_JSON'); // Agora isso vai funcionar!
         const rawFeriados = getJsonData('FERIADOS_JSON');
         const FERIADOS = Array.isArray(rawFeriados) ? rawFeriados : [];
         const rawFolgas = getJsonData('FOLGAS_JSON');
@@ -312,27 +314,132 @@
         let selectedDate = null;
         let selectedTime = null;
 
+        window.addEventListener('DOMContentLoaded', () => {
+            const firstCatBtn = document.querySelector('.cat-btn');
+            if(firstCatBtn) filtrarCategoria(firstCatBtn);
+        });
+
+        // FILTRA SERVIÇOS E PROFISSIONAIS PELA CATEGORIA
         function filtrarCategoria(btnOrId) {
             const btn = (btnOrId instanceof HTMLElement) ? btnOrId : document.querySelector(`.cat-btn[data-id="${btnOrId}"]`);
             if(!btn) return;
+            
             const catId = btn.dataset.id;
+            
+            // 1. UI da Categoria
             document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
+            
+            // 2. Filtrar Serviços
             const cards = document.querySelectorAll('.service-card');
             let visibleCount = 0;
+            let servicosDessaCategoria = []; // Guarda IDs dos serviços para filtrar profissionais
+
             cards.forEach(card => {
                 const cardCat = card.dataset.cat;
-                if (catId === 'todas' || cardCat === catId) {
+                const input = card.querySelector('input');
+                
+                if (cardCat === catId) {
                     card.style.display = 'flex';
                     card.classList.remove('animate-pop');
                     void card.offsetWidth; 
                     card.classList.add('animate-pop');
                     visibleCount++;
+                    if(input) servicosDessaCategoria.push(parseInt(input.value));
                 } else {
                     card.style.display = 'none';
                 }
             });
             document.getElementById('msg-sem-servico').style.display = (visibleCount === 0) ? 'block' : 'none';
+
+            // 3. ATUALIZAR LISTA DE PROFISSIONAIS IMEDIATAMENTE
+            atualizarListaProfissionais(servicosDessaCategoria);
+        }
+
+        // NOVA FUNÇÃO: Renderiza profissionais baseados na lista de serviços disponíveis
+        function atualizarListaProfissionais(idsServicosValidos) {
+            const container = document.getElementById('lista-profissionais');
+            container.innerHTML = '';
+
+            // Filtra profissionais que fazem ALGUM dos serviços da categoria atual
+            const profsFiltrados = PROFISSIONAIS_ALL.filter(p => {
+                // p.servicos é [1, 2, 5] (lista de IDs)
+                return p.servicos.some(sId => idsServicosValidos.includes(sId));
+            });
+
+            // Mostra a seção de profissionais mesmo antes de escolher o serviço
+            document.getElementById('section-profissionais').classList.remove('opacity-40', 'pointer-events-none');
+
+            if (profsFiltrados.length === 0) {
+                container.innerHTML = '<p class="text-orange-500 font-bold text-sm ml-2">Nenhum profissional nesta categoria.</p>';
+                return;
+            }
+
+            profsFiltrados.forEach(p => {
+                const div = document.createElement('div');
+                div.className = "prof-card flex-shrink-0 text-center w-28 cursor-pointer group"; 
+                
+                let imgHtml = p.foto 
+                    ? `<img src="${p.foto}" class="rounded-full w-full h-full object-cover">`
+                    : `<img src="https://ui-avatars.com/api/?name=${encodeURIComponent(p.nome)}&background=${THEME_HEX}&color=fff&bold=true" class="rounded-full w-full h-full">`;
+
+                div.innerHTML = `
+                    <div class="prof-img-container w-24 h-24 mx-auto translate-x-4 rounded-full bg-white mb-3 border-4 border-gray-100 transition-all shadow-sm flex items-center justify-center overflow-hidden" data-pid="${p.id}">
+                        ${imgHtml}
+                    </div>
+                    <span class="block text-[10px] font-black uppercase text-gray-500 translate-x-4">${p.nome}</span>
+                `;
+                
+                div.onclick = () => {
+                    if(!selectedService) {
+                        alert("Por favor, selecione um serviço acima primeiro.");
+                        return;
+                    }
+                    selecionarProfissionalUI(p.id, div);
+                };
+                container.appendChild(div);
+            });
+        }
+
+        function selecionarServico(input) {
+            selectedService = input.value;
+            selectedServiceName = input.closest('.service-card').querySelector('span.block').innerText;
+            
+            document.querySelectorAll('.service-card').forEach(card => card.classList.remove('selected-card'));
+            input.parentElement.classList.add('selected-card');
+
+            // Quando clica no serviço, podemos refinar a lista para mostrar APENAS quem faz aquele serviço específico
+            const profsQueFazemEsseServico = PROFISSIONAIS_ALL.filter(p => p.servicos.includes(parseInt(selectedService)));
+            
+            // Re-renderiza a lista de profissionais apenas com os compatíveis
+            const container = document.getElementById('lista-profissionais');
+            container.innerHTML = '';
+            
+            if (profsQueFazemEsseServico.length === 0) {
+                container.innerHTML = '<p class="text-orange-500 font-bold text-sm ml-2">Ninguém faz este serviço.</p>';
+                return;
+            }
+
+            profsQueFazemEsseServico.forEach(p => {
+                 const div = document.createElement('div');
+                 div.className = "prof-card flex-shrink-0 text-center w-28 cursor-pointer group";
+                 let imgHtml = p.foto ? `<img src="${p.foto}" class="rounded-full w-full h-full object-cover">` : `<img src="https://ui-avatars.com/api/?name=${encodeURIComponent(p.nome)}&background=${THEME_HEX}&color=fff&bold=true" class="rounded-full w-full h-full">`;
+                 div.innerHTML = `<div class="prof-img-container w-24 h-24 mx-auto translate-x-4 rounded-full bg-white mb-3 border-4 border-gray-100 transition-all shadow-sm flex items-center justify-center overflow-hidden" data-pid="${p.id}">${imgHtml}</div><span class="block text-[10px] font-black uppercase text-gray-500 translate-x-4">${p.nome}</span>`;
+                 div.onclick = () => selecionarProfissionalUI(p.id, div);
+                 container.appendChild(div);
+            });
+
+            document.getElementById('section-profissionais').scrollIntoView({behavior:'smooth', block: 'center'});
+        }
+
+        function selecionarProfissionalUI(pid, divEl) {
+            selectedProfessional = pid;
+            document.querySelectorAll('.prof-img-container').forEach(c => c.classList.remove('selected-prof', 'border-theme', 'scale-110'));
+            divEl.querySelector('.prof-img-container').classList.add('selected-prof', 'border-theme', 'scale-110');
+            
+            document.getElementById('section-calendario').classList.remove('hidden');
+            renderizarCalendario();
+            document.getElementById('section-calendario').scrollIntoView({behavior:'smooth'});
         }
 
         function mostrarErro(mensagem) {
@@ -388,60 +495,6 @@
                 }
                 e.target.value = formatted;
             });
-        }
-
-        async function selecionarServico(input) {
-            selectedService = input.value;
-            selectedServiceName = input.closest('.service-card').querySelector('span.block').innerText;
-            document.querySelectorAll('.service-card').forEach(card => card.classList.remove('selected-card'));
-            input.parentElement.classList.add('selected-card');
-
-            document.getElementById('section-profissionais').classList.remove('opacity-40', 'pointer-events-none');
-            const container = document.getElementById('lista-profissionais');
-            container.innerHTML = '<p class="text-theme font-bold loading-text ml-2 text-sm">🔍 Buscando especialistas...</p>';
-
-            try {
-                const res = await fetch(`${BASE_URL}/profissionais-por-servico/${selectedService}`);
-                const profs = await res.json();
-                
-                container.innerHTML = '';
-                if(profs.length === 0) {
-                    container.innerHTML = '<p class="text-orange-500 font-bold text-sm ml-2">Nenhum profissional habilitado.</p>';
-                    return;
-                }
-                
-                profs.forEach(p => {
-                    const div = document.createElement('div');
-                    div.className = "prof-card flex-shrink-0 text-center w-28 cursor-pointer group";
-                    
-                    let imgHtml = "";
-                    if (p.foto_url) {
-                        imgHtml = `<img src="${p.foto_url}" class="rounded-full w-full h-full object-cover">`;
-                    } else {
-                        imgHtml = `<img src="https://ui-avatars.com/api/?name=${encodeURIComponent(p.nome)}&background=${THEME_HEX}&color=fff&bold=true" class="rounded-full w-full h-full">`;
-                    }
-
-                    div.innerHTML = `
-                        <div class="prof-img-container w-24 h-24 mx-auto translate-x-4 rounded-full bg-white mb-3 border-4 border-gray-100 transition-all shadow-sm flex items-center justify-center overflow-hidden">
-                            ${imgHtml}
-                        </div>
-                        <span class="block text-[10px] font-black uppercase text-gray-500 translate-x-4">${p.nome}</span>
-                    `;
-                    div.onclick = () => {
-                        selectedProfessional = p.id;
-                        document.querySelectorAll('.prof-img-container').forEach(c => c.classList.remove('selected-prof', 'border-theme', 'scale-110'));
-                        div.querySelector('.prof-img-container').classList.add('selected-prof', 'border-theme', 'scale-110');
-                        document.getElementById('section-calendario').classList.remove('hidden');
-                        renderizarCalendario();
-                        document.getElementById('section-calendario').scrollIntoView({behavior:'smooth'});
-                    };
-                    container.appendChild(div);
-                });
-                document.getElementById('section-profissionais').scrollIntoView({behavior:'smooth', block: 'center'});
-            } catch(e) {
-                console.error(e);
-                container.innerHTML = '<p class="text-red-500 text-sm">Erro ao carregar profissionais.</p>';
-            }
         }
 
         function renderizarCalendario() {
@@ -581,7 +634,6 @@
             return submitAgendamento(null);
         }
 
-        // FUNÇÃO ATUALIZADA PARA USAR CÓDIGO DO BACKEND
         async function submitAgendamento(turnstileToken) {
             const nome = document.getElementById('cliente-nome').value;
             const fone = document.getElementById('cliente-whatsapp').value;
@@ -606,13 +658,11 @@
                     })
                 });
 
-                // LER RESPOSTA COM CÓDIGO
                 const data = await res.json();
 
                 if (res.ok) {
                     document.getElementById('modal-sucesso').classList.remove('hidden');
                     try {
-                        // Passar o código recebido do backend para a função de voucher
                         gerarVoucher(nome, fone, selectedDate, selectedTime, selectedServiceName, data.codigo);
                     } catch(err) {
                         document.getElementById('loading-ticket').classList.add('hidden');
@@ -631,7 +681,6 @@
             }
         }
 
-        // FUNÇÃO GERAR VOUCHER SEM CÓDIGO ALEATÓRIO
         function gerarVoucher(nome, tel, data, hora, servico, codigoBackend) {
             const safeNome = nome || "Cliente";
             const safeData = data ? data.split('-').reverse().join('/') : "--/--";
@@ -644,7 +693,6 @@
             document.getElementById('v-hora').innerText = safeHora;
             document.getElementById('v-servico').innerText = safeServico;
             
-            // USAR O CÓDIGO DO BACKEND
             document.getElementById('v-codigo').innerText = codigoBackend || "PENDENTE";
 
             setTimeout(() => {

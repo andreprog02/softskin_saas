@@ -156,6 +156,17 @@ def pagina_agendamento(request, slug):
             endereco = salao.endereco if isinstance(salao.endereco, dict) else json.loads(salao.endereco)
     except: pass
 
+    # --- NOVO: Carregar profissionais e seus serviços para filtro imediato ---
+    profs_objs = Professional.objects.filter(salon=salao)
+    profissionais_data = []
+    for p in profs_objs:
+        profissionais_data.append({
+            "id": p.id,
+            "nome": p.nome,
+            "foto": p.foto.url if p.foto else None,
+            "servicos": list(p.services.values_list('id', flat=True)) # Lista de IDs de serviços que ele faz
+        })
+
     return render(request, "booking/agendar.html", {
         "salao": salao,
         "servicos": servicos,
@@ -163,8 +174,10 @@ def pagina_agendamento(request, slug):
         "feriados": feriados,
         "folgas": folgas,
         "dias_fechados": dias_fechados,
-        "endereco": endereco
+        "endereco": endereco,
+        "profissionais": profissionais_data # Passando para o template
     })
+
 
 def api_profissionais_por_servico(request, slug, service_id):
     salao = get_object_or_404(Salon, slug=slug)
