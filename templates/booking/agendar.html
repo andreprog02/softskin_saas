@@ -330,43 +330,55 @@ function filtrarCategoria(btn) {
 
         // 1. RESETAR (Mantenha apenas ESTA versão no topo)
 function resetarEstado(nivel) {
-    // Nível 1 ou 2: Mudou categoria ou serviço (Limpa tudo dali para baixo)
-    if (nivel <= 2) {
-        selectedProfessional = null;
-        selectedDate = null;
-        selectedTime = null;
+            // Nível 1: Mudou Categoria (Limpa TUDO)
+            if (nivel === 1) {
+                selectedService = null;
+                selectedServiceName = null;
+                
+                // Desmarca visualmente todos os serviços
+                document.querySelectorAll('.service-card').forEach(c => {
+                    c.classList.remove('selected-card');
+                    // Garante que inputs ocultos sejam desmarcados (se existirem)
+                    const radio = c.querySelector('input');
+                    if(radio) radio.checked = false;
+                });
+            }
 
-        // 1. LIMPA O CONTEÚDO DOS PROFISSIONAIS
-        const listaProf = document.getElementById('lista-profissionais');
-        if (listaProf) {
-            // Voltamos ao texto inicial ou deixamos vazio
-            listaProf.innerHTML = '<p class="text-gray-400 italic text-sm ml-2">Selecione o serviço acima...</p>';
+            // Nível 1 ou 2: Mudou Categoria OU Serviço
+            if (nivel <= 2) {
+                selectedProfessional = null;
+                
+                // Limpa visual dos profissionais (remove seleção anterior)
+                document.querySelectorAll('.prof-img-container').forEach(c => 
+                    c.classList.remove('selected-prof', 'border-theme', 'scale-110')
+                );
+
+                // Oculta seções futuras para forçar nova escolha
+                document.getElementById('section-calendario').classList.add('hidden');
+                
+                // Se mudou a categoria (nível 1), limpamos a lista de profissionais também
+                // Se mudou só o serviço (nível 2), mantemos a lista mas removemos a seleção
+                if (nivel === 1) {
+                    const listaProf = document.getElementById('lista-profissionais');
+                    if(listaProf) listaProf.innerHTML = '<p class="text-gray-400 italic text-sm ml-2">Selecione o serviço acima...</p>';
+                    document.getElementById('section-profissionais').classList.add('opacity-40', 'pointer-events-none');
+                }
+            }
+
+            // Nível 1, 2 ou 3: Sempre reseta Data, Horário e Finalização
+            selectedDate = null;
+            selectedTime = null;
+            
+            document.getElementById('section-horarios').classList.add('hidden');
+            document.getElementById('section-finalizar').classList.add('hidden');
+            document.getElementById('lista-horarios').innerHTML = '';
+            
+            // Remove seleção visual do calendário se ele estiver visível
+            document.querySelectorAll('.day-selected').forEach(d => d.classList.remove('day-selected'));
         }
 
-        // 2. ESCONDE AS SEÇÕES (Volta ao estado inicial do layout)
-        document.getElementById('section-profissionais').classList.add('hidden');
-        document.getElementById('section-calendario').classList.add('hidden');
-        document.getElementById('section-horarios').classList.add('hidden');
-        document.getElementById('section-finalizar').classList.add('hidden');
+
         
-        // 3. LIMPA OUTROS DADOS VISUAIS
-        document.getElementById('lista-horarios').innerHTML = '';
-        document.querySelectorAll('.prof-img-container').forEach(c => 
-            c.classList.remove('selected-prof', 'border-theme', 'scale-110')
-        );
-    }
-
-    // Nível 3: Mudou apenas o profissional (Limpa apenas data e horário)
-    if (nivel === 3) {
-        selectedDate = null;
-        selectedTime = null;
-        document.getElementById('section-horarios').classList.add('hidden');
-        document.getElementById('section-finalizar').classList.add('hidden');
-        document.getElementById('lista-horarios').innerHTML = '';
-        if (typeof renderizarCalendario === "function") renderizarCalendario();
-    }
-}
-
 // 2. SELECIONAR SERVIÇO (Melhorado para carregar profissionais na hora)
 function selecionarServico(id, nome, cardEl) {
     // Limpa tudo o que foi selecionado depois do serviço
