@@ -12,16 +12,22 @@ from .models import Salon, User
 
 def login_view(request):
     if request.method == "POST":
-        email = request.POST.get("email")
-        senha = request.POST.get("senha")
+        # CORREÇÃO: O HTML envia 'username' e 'password', não 'email' e 'senha'
+        email = request.POST.get("username")
+        senha = request.POST.get("password")
         
-        # No Django, o 'username' padrão será o email
+        # Boa prática: Forçar minúsculas no email para evitar erro de caixa alta/baixa
+        if email:
+            email = email.lower()
+
+        # O Django espera o 'username', que no seu caso é o email
         user = authenticate(request, username=email, password=senha)
+        
         if user:
             login(request, user)
             return redirect("dashboard")
         else:
-            return render(request, "auth/login.html", {"erro": "Dados inválidos"})
+            return render(request, "auth/login.html", {"erro": "E-mail ou senha incorretos."})
     
     return render(request, "auth/login.html")
 
